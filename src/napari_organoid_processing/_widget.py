@@ -608,16 +608,3 @@ class OrganoidProcessing(Container):
                     name=f'{labels_layer.name} cropped',
                     **self._generic_labels_layer_properties(labels_layer)
                 )
-    
-
-
-
-# if __name__ == '__main__':
-#     import napari
-#     import tifffile
-#     viewer = napari.Viewer()
-#     viewer.add_image(
-#         tifffile.imread('/home/jvanaret/data/project_egg/raw/fusion4/fusion4.tif')[:5],
-#     )
-#     viewer.window.add_dock_widget(OrganoidProcessing(viewer), area='right')
-#     napari.run()
