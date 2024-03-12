@@ -1,13 +1,6 @@
 # napari-organoid-processing
 
-[![License MIT](https://img.shields.io/pypi/l/napari-organoid-processing.svg?color=green)](https://github.com/jules-vanaret/napari-organoid-processing/raw/main/LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/napari-organoid-processing.svg?color=green)](https://pypi.org/project/napari-organoid-processing)
-[![Python Version](https://img.shields.io/pypi/pyversions/napari-organoid-processing.svg?color=green)](https://python.org)
-[![tests](https://github.com/jules-vanaret/napari-organoid-processing/workflows/tests/badge.svg)](https://github.com/jules-vanaret/napari-organoid-processing/actions)
-[![codecov](https://codecov.io/gh/jules-vanaret/napari-organoid-processing/branch/main/graph/badge.svg)](https://codecov.io/gh/jules-vanaret/napari-organoid-processing)
-[![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-organoid-processing)](https://napari-hub.org/plugins/napari-organoid-processing)
-
-A simple plugin to use FooBar segmentation within napari
+A collection of methods to process organoid 3D and 3D+T images in napari.
 
 ----------------------------------
 
@@ -23,11 +16,9 @@ https://napari.org/stable/plugins/index.html
 
 ## Installation
 
-You can install `napari-organoid-processing` via [pip]:
+From the repo's root, you can install `napari-organoid-processing` via [pip]:
 
-    pip install napari-organoid-processing
-
-
+    pip install -e .
 
 To install latest development version :
 
