@@ -1,66 +1,170 @@
+import napari
+import tifffile
+from os import cpu_count
+from qtpy.QtWidgets import QComboBox, QStackedWidget, QVBoxLayout, QWidget
+from napari.layers import Image, Labels
+from magicgui.widgets import Container, create_widget, EmptyWidget, ComboBox
 import numpy as np
+from napari_organoid_processing import OrganoidProcessing
 
-from napari_organoid_processing._widget import (
-    ExampleQWidget,
-    ImageThreshold,
-    threshold_autogenerate_widget,
-    threshold_magic_widget,
-)
+path_to_data = '/home/jvanaret/data/project_egg/raw/fusion4'
+data = tifffile.imread(f'{path_to_data}/fusion4.tif')
 
 
-def test_threshold_autogenerate_widget():
-    # because our "widget" is a pure function, we can call it and
-    # test it independently of napari
-    im_data = np.random.random((100, 100))
-    thresholded = threshold_autogenerate_widget(im_data, 0.5)
-    assert thresholded.shape == im_data.shape
-    # etc.
+
+    
+class OrganoidProcessing(Container):
+    def __init__(self, viewer: "napari.viewer.Viewer"):
+        super().__init__()
+
+        self._viewer = viewer
+
+        self._overwrite_checkbox = create_widget(
+            widget_type="CheckBox", label='Newly computed layers overwrite previous ones', 
+            options={'value': True}
+        )
+
+        self._n_jobs_slider = create_widget(
+            widget_type="IntSlider", label='# parallel jobs', 
+            options={'min':1, 'max':cpu_count(), 'value':cpu_count()}
+        )
+
+        # Making array isotropic
+        self._isotropize_layer_combo = create_widget(
+            label='Isotropize layer', 
+            annotation="napari.layers.Layer",
+        )
+        
+        # self._isotropize_layer_combo.label_changed.connect(self._compute_mask_data_layer_combo_changed)
+
+        self._isotropize_interp_order_combo = create_widget(
+            label='Interpolation order', 
+            options={'choices':[0, 1, 3], 'value':1},
+        )
+
+        self._isotropize_zoom_factors = create_widget(
+            widget_type="LineEdit", label='Zoom factors (ZYX)',
+            options={'value':'1,1,1'},
+        )
+
+        self._isotropize_run_button = create_widget(
+            widget_type="PushButton", label='Run isotropize',
+        )
+
+        self._isotropize_run_button.clicked.connect(self._run_isotropize)
+
+        # isotropize_container = Container(
+        #     widgets=[
+        #         self._isotropize_layer_combo,
+        #         self._isotropize_interp_order_combo,
+        #         self._isotropize_zoom_factors,
+        #         self._isotropize_run_button
+        #     ]
+        # )
+        isotropize_container = QWidget()
+        isotropize_layout = QVBoxLayout()
+        isotropize_layout.setContentsMargins(0.1, 0.1, 0.1, 0.1)  # Set margins to 0
+        isotropize_layout.addWidget(self._isotropize_layer_combo.native)
+        isotropize_layout.addWidget(self._isotropize_interp_order_combo.native)
+        isotropize_layout.addWidget(self._isotropize_zoom_factors.native)
+        isotropize_layout.addWidget(self._isotropize_run_button.native)
+        isotropize_layout.setSpacing(0)  # Set spacing to 0
+        isotropize_container.setLayout(isotropize_layout)
+        
+
+        # Computing mask
+        self._compute_mask_data_layer_combo = create_widget(
+            label='Compute mask from', 
+            annotation="napari.layers.Image",
+        )
+
+        # self._compute_mask_data_layer_combo.changed.connect(
+        #     self._compute_mask_data_layer_combo_changed
+        # )
+
+        self._compute_mask_method_combo = create_widget(
+            label='Method', 
+            options={'choices':['otsu', 'local median'], 'value':'otsu'},
+        )
+
+        self._compute_mask_box_size_slider = create_widget(
+            widget_type="IntSlider", label='Box size (~ object size)',
+            options={'min':5, 'max':30, 'value':10},
+        )
+
+        self._compute_mask_run_button = create_widget(
+            widget_type="PushButton", label='Run compute mask'
+        )
+
+        self._compute_mask_run_button.clicked.connect(self._run_compute_mask)
+
+        # compute_mask_container = Container(
+        #     widgets=[
+        #         self._compute_mask_data_layer_combo,
+        #         self._compute_mask_method_combo,
+        #         self._compute_mask_box_size_slider,
+        #         self._compute_mask_run_button
+        #     ]
+        # )
+        compute_mask_container = QWidget()
+        compute_mask_layout = QVBoxLayout()
+        compute_mask_layout.addWidget(self._compute_mask_data_layer_combo.native)
+        compute_mask_layout.addWidget(self._compute_mask_method_combo.native)
+        compute_mask_layout.addWidget(self._compute_mask_box_size_slider.native)
+        compute_mask_layout.addWidget(self._compute_mask_run_button.native)
+        compute_mask_container.setLayout(compute_mask_layout)
 
 
-# make_napari_viewer is a pytest fixture that returns a napari viewer object
-# you don't need to import it, as long as napari is installed
-# in your testing environment
-def test_threshold_magic_widget(make_napari_viewer):
-    viewer = make_napari_viewer()
-    layer = viewer.add_image(np.random.random((100, 100)))
+        main_combobox = QComboBox()
+        main_combobox._explicitly_hidden = False
+        main_combobox.native = main_combobox
 
-    # our widget will be a MagicFactory or FunctionGui instance
-    my_widget = threshold_magic_widget()
+        main_stack = QStackedWidget()
+        main_stack.native = main_stack
 
-    # if we "call" this object, it'll execute our function
-    thresholded = my_widget(viewer.layers[0], 0.5)
-    assert thresholded.shape == layer.data.shape
-    # etc.
+        for i,w in enumerate([isotropize_container, compute_mask_container]):
 
+            main_combobox.addItem(f'Option {i}')
+            main_stack.addWidget(w)
 
-def test_image_threshold_widget(make_napari_viewer):
-    viewer = make_napari_viewer()
-    layer = viewer.add_image(np.random.random((100, 100)))
-    my_widget = ImageThreshold(viewer)
+        main_combobox.currentIndexChanged.connect(main_stack.setCurrentIndex)
+        main_combobox.name = "main_combobox"
+        main_stack.name = "main_stack"
+        main_stack.setStyleSheet("QStackedWidget > QWidget { margin: 0px; padding: 0px; border: none; }")
 
-    # because we saved our widgets as attributes of the container
-    # we can set their values without having to "interact" with the viewer
-    my_widget._image_layer_combo.value = layer
-    my_widget._threshold_slider.value = 0.5
-
-    # this allows us to run our functions directly and ensure
-    # correct results
-    my_widget._threshold_im()
-    assert len(viewer.layers) == 2
+        main_control = Container(
+            widgets=[
+                main_combobox,
+                main_stack,
+            ],
+            labels=False,
+        )
 
 
-# capsys is a pytest fixture that captures stdout and stderr output streams
-def test_example_q_widget(make_napari_viewer, capsys):
-    # make viewer and add an image layer using our fixture
-    viewer = make_napari_viewer()
-    viewer.add_image(np.random.random((100, 100)))
+        # append into/extend the container with your widgets
+        self.extend(
+            [
+                self._overwrite_checkbox,
+                self._n_jobs_slider,
+                main_control
+            ]
+        )
 
-    # create our widget, passing in the viewer
-    my_widget = ExampleQWidget(viewer)
+    def _run_isotropize(self):
+        print('run isotropize')
 
-    # call our widget method
-    my_widget._on_click()
+    def _run_compute_mask(self):
+        print('run compute mask')
 
-    # read captured output and check that it's as we expected
-    captured = capsys.readouterr()
-    assert captured.out == "napari has 1 layers\n"
+    def _not_bool_layers_filter(self, foo):
+        print('filter')
+    
+
+viewer = napari.Viewer()
+viewer.add_image(data, name='fusion4')
+op = OrganoidProcessing(viewer)
+viewer.window.add_dock_widget(op)
+
+napari.run()
+
+        

@@ -5,8 +5,9 @@ from magicgui import magicgui
 from time import time
 from os import cpu_count
 from organoid.preprocessing.segmentation_postprocessing import remove_labels_outside_of_mask
-from organoid.preprocessing.preprocessing import make_array_isotropic, compute_mask_with_median, \
-    compute_mask_with_otsu, local_image_normalization, align_array_major_axis, crop_array_using_mask
+from organoid.preprocessing.preprocessing import make_array_isotropic, compute_mask_with_histomin, \
+    compute_mask_with_otsu, local_image_normalization, align_array_major_axis, crop_array_using_mask, \
+    compute_mask_with_snp
 from napari.layers import Image, Labels
 from fractions import Fraction
 
@@ -37,8 +38,6 @@ class OrganoidProcessing(Container):
             label='Isotropize layer', 
             annotation="napari.layers.Layer",
         )
-        
-        # self._isotropize_layer_combo.label_changed.connect(self._compute_mask_data_layer_combo_changed)
 
         self._isotropize_interp_order_combo = create_widget(
             label='Interpolation order', 
@@ -63,18 +62,20 @@ class OrganoidProcessing(Container):
             options={'choices': self._not_bool_layers_filter}
         )
 
-        # self._compute_mask_data_layer_combo.changed.connect(
-        #     self._compute_mask_data_layer_combo_changed
-        # )
 
         self._compute_mask_method_combo = create_widget(
             label='Method', 
-            options={'choices':['otsu', 'local median'], 'value':'otsu'},
+            options={'choices':['otsu', 'histogram min', 'snp otsu'], 'value':'otsu'},
         )
 
-        self._compute_mask_box_size_slider = create_widget(
-            widget_type="IntSlider", label='Box size (~ object size)',
-            options={'min':5, 'max':30, 'value':10},
+        self._compute_mask_sigma_blur_slider = create_widget(
+            widget_type="IntSlider", label='Sigma blur (~ object size/3)',
+            options={'min':1, 'max':20, 'value':10},
+        )
+
+        self._compute_mask_ostsu_factor_slider = create_widget(
+            widget_type="FloatSlider", label='Otsu factor',
+            options={'min':0.3, 'max':3, 'value':1},
         )
 
         self._compute_mask_run_button = create_widget(
@@ -90,19 +91,11 @@ class OrganoidProcessing(Container):
             options={'choices': self._not_bool_layers_filter}
         )
 
-        # self._local_normalization_data_layer_combo.changed.connect(
-        #     self._compute_mask_data_layer_combo_changed
-        # )
-
         self._local_normalization_mask_layer_combo = create_widget(
             label='Remove values outside of mask',
             annotation="napari.layers.Image",
             options={'nullable': True, 'choices': self._bool_layers_filter}
         )
-
-        # self._local_normalization_mask_layer_combo.changed.connect(
-        #     self._compute_mask_data_layer_combo_changed
-        # )
 
         self._local_normalization_box_size_slider = create_widget(
             widget_type="IntSlider", label='Box size (~ object size)',
@@ -221,7 +214,8 @@ class OrganoidProcessing(Container):
                 self._isotropize_run_button,
                 self._compute_mask_data_layer_combo,
                 self._compute_mask_method_combo,
-                self._compute_mask_box_size_slider,
+                self._compute_mask_sigma_blur_slider,
+                self._compute_mask_ostsu_factor_slider,
                 self._compute_mask_run_button,
                 self._local_normalization_data_layer_combo,
                 self._local_normalization_mask_layer_combo,
@@ -365,13 +359,22 @@ class OrganoidProcessing(Container):
         if self._compute_mask_method_combo.value == 'otsu':
             mask = compute_mask_with_otsu(
                 layer.data,
-                box_size=self._compute_mask_box_size_slider.value,
+                sigma_blur=self._compute_mask_sigma_blur_slider.value,
+                threshold_factor=self._compute_mask_ostsu_factor_slider.value,
                 n_jobs=self._n_jobs_slider.value
             )
-        elif self._compute_mask_method_combo.value == 'local median':
-            mask = compute_mask_with_median(
+        elif self._compute_mask_method_combo.value == 'histogram min':
+            mask = compute_mask_with_histomin(
                 layer.data,
-                box_size=self._compute_mask_box_size_slider.value,
+                sigma_blur=self._compute_mask_sigma_blur_slider.value,
+                threshold_factor=self._compute_mask_ostsu_factor_slider.value,
+                n_jobs=self._n_jobs_slider.value
+            )
+        elif self._compute_mask_method_combo.value == 'snp otsu':
+            mask = compute_mask_with_snp(
+                layer.data,
+                sigma_blur=self._compute_mask_sigma_blur_slider.value,
+                threshold_factor=self._compute_mask_ostsu_factor_slider.value,
                 n_jobs=self._n_jobs_slider.value
             )
 
