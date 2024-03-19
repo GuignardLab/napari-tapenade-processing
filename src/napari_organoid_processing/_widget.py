@@ -5,9 +5,8 @@ from magicgui import magicgui
 from time import time
 from os import cpu_count
 from organoid.preprocessing.segmentation_postprocessing import remove_labels_outside_of_mask
-from organoid.preprocessing.preprocessing import make_array_isotropic, compute_mask_with_histomin, \
-    compute_mask_with_otsu, local_image_normalization, align_array_major_axis, crop_array_using_mask, \
-    compute_mask_with_snp
+from organoid.preprocessing.preprocessing import make_array_isotropic, compute_mask, \
+    local_image_normalization, align_array_major_axis, crop_array_using_mask
 from napari.layers import Image, Labels
 from fractions import Fraction
 
@@ -25,7 +24,7 @@ class OrganoidProcessing(Container):
 
         self._overwrite_checkbox = create_widget(
             widget_type="CheckBox", label='Newly computed layers overwrite previous ones', 
-            options={'value': True}
+            options={'value': False}
         )
 
         self._n_jobs_slider = create_widget(
@@ -73,9 +72,14 @@ class OrganoidProcessing(Container):
             options={'min':1, 'max':20, 'value':10},
         )
 
-        self._compute_mask_ostsu_factor_slider = create_widget(
-            widget_type="FloatSlider", label='Otsu factor',
+        self._compute_mask_threshold_factor_slider = create_widget(
+            widget_type="FloatSlider", label='Threshold mult. factor',
             options={'min':0.3, 'max':3, 'value':1},
+        )
+
+        self._convex_hull_checkbox = create_widget(
+            widget_type="CheckBox", label='Compute convex hull',
+            options={'value': False}
         )
 
         self._compute_mask_run_button = create_widget(
@@ -85,33 +89,33 @@ class OrganoidProcessing(Container):
         self._compute_mask_run_button.clicked.connect(self._run_compute_mask)
 
         # Local normalization
-        self._local_normalization_data_layer_combo = create_widget(
+        self._local_norm_data_layer_combo = create_widget(
             label='Local normalization from', 
             annotation="napari.layers.Image",
             options={'choices': self._not_bool_layers_filter}
         )
 
-        self._local_normalization_mask_layer_combo = create_widget(
+        self._local_norm_mask_layer_combo = create_widget(
             label='Remove values outside of mask',
             annotation="napari.layers.Image",
             options={'nullable': True, 'choices': self._bool_layers_filter}
         )
 
-        self._local_normalization_box_size_slider = create_widget(
+        self._local_norm_box_size_slider = create_widget(
             widget_type="IntSlider", label='Box size (~ object size)',
             options={'min':5, 'max':30, 'value':10},
         )
 
-        self._local_normalization_percentiles_slider = create_widget(
+        self._local_norm_percentiles_slider = create_widget(
             widget_type="FloatRangeSlider", label='Percentiles',
             options={'min':0, 'max':100, 'value':[1, 99]},
         )
 
-        self._local_normalization_run_button = create_widget(
+        self._local_norm_run_button = create_widget(
             widget_type="PushButton", label='Run local normalization'
         )
 
-        self._local_normalization_run_button.clicked.connect(self._run_local_normalization)
+        self._local_norm_run_button.clicked.connect(self._run_local_normalization)
 
         # Aligning major axis
         self._align_major_axis_mask_layer_combo = create_widget(
@@ -215,13 +219,14 @@ class OrganoidProcessing(Container):
                 self._compute_mask_data_layer_combo,
                 self._compute_mask_method_combo,
                 self._compute_mask_sigma_blur_slider,
-                self._compute_mask_ostsu_factor_slider,
+                self._compute_mask_threshold_factor_slider,
+                self._convex_hull_checkbox,
                 self._compute_mask_run_button,
-                self._local_normalization_data_layer_combo,
-                self._local_normalization_mask_layer_combo,
-                self._local_normalization_box_size_slider,
-                self._local_normalization_percentiles_slider,
-                self._local_normalization_run_button,
+                self._local_norm_data_layer_combo,
+                self._local_norm_mask_layer_combo,
+                self._local_norm_box_size_slider,
+                self._local_norm_percentiles_slider,
+                self._local_norm_run_button,
                 self._align_major_axis_mask_layer_combo,
                 self._align_major_axis_data_layer_combo,
                 self._align_major_axis_labels_layer_combo,
@@ -355,28 +360,15 @@ class OrganoidProcessing(Container):
         )
 
         start_time = time()
-        
-        if self._compute_mask_method_combo.value == 'otsu':
-            mask = compute_mask_with_otsu(
-                layer.data,
-                sigma_blur=self._compute_mask_sigma_blur_slider.value,
-                threshold_factor=self._compute_mask_ostsu_factor_slider.value,
-                n_jobs=self._n_jobs_slider.value
-            )
-        elif self._compute_mask_method_combo.value == 'histogram min':
-            mask = compute_mask_with_histomin(
-                layer.data,
-                sigma_blur=self._compute_mask_sigma_blur_slider.value,
-                threshold_factor=self._compute_mask_ostsu_factor_slider.value,
-                n_jobs=self._n_jobs_slider.value
-            )
-        elif self._compute_mask_method_combo.value == 'snp otsu':
-            mask = compute_mask_with_snp(
-                layer.data,
-                sigma_blur=self._compute_mask_sigma_blur_slider.value,
-                threshold_factor=self._compute_mask_ostsu_factor_slider.value,
-                n_jobs=self._n_jobs_slider.value
-            )
+
+        mask = compute_mask(
+            layer.data,
+            method=self._compute_mask_method_combo.value,
+            sigma_blur=self._compute_mask_sigma_blur_slider.value,
+            threshold_factor=self._compute_mask_threshold_factor_slider.value,
+            compute_convex_hull=self._convex_hull_checkbox.value,
+            n_jobs=self._n_jobs_slider.value
+        )
 
         print(f'Mask computation took {time() - start_time} seconds')
 
@@ -390,30 +382,32 @@ class OrganoidProcessing(Container):
     def _run_local_normalization(self):
 
         layer, _ = self._assert_basic_layer_properties(
-            self._local_normalization_data_layer_combo.value, ['Image']
+            self._local_norm_data_layer_combo.value, ['Image']
         )
 
-        if self._local_normalization_mask_layer_combo.value is not None:
+        if self._local_norm_mask_layer_combo.value is not None:
             mask_layer, _ = self._assert_basic_layer_properties(
-                self._local_normalization_mask_layer_combo.value, ['Image']
+                self._local_norm_mask_layer_combo.value, ['Image']
             )
-            assert mask_layer.data.shape == layer.data.shape, 'Mask and data must have the same shape'
+            mask_layer_data = mask_layer.data
+            assert mask_layer_data.shape == layer.data.shape, 'Mask and data must have the same shape'
         else:
-            mask_layer = None
+            mask_layer_data = None
 
-        perc_low, perc_high = self._local_normalization_percentiles_slider.value
+        perc_low, perc_high = self._local_norm_percentiles_slider.value
 
         start_time = time()
         normalized_array = local_image_normalization(
             layer.data,
             perc_low=perc_low, perc_high=perc_high,
-            box_size=self._local_normalization_box_size_slider.value,
+            box_size=self._local_norm_box_size_slider.value,
+            mask=mask_layer_data,
             n_jobs=self._n_jobs_slider.value
         )
         print(f'Local normalization took {time() - start_time} seconds')
 
-        if mask_layer is not None:
-            normalized_array = np.where(mask_layer.data, normalized_array, 0.0)
+        if mask_layer_data is not None:
+            normalized_array = np.where(mask_layer_data, normalized_array, 0.0)
 
         if self._overwrite_checkbox.value:
             layer.data = normalized_array
