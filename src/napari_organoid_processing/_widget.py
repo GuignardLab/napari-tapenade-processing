@@ -28,9 +28,6 @@ import napari
 - Add tracks processing functions
 
 
-- Factorize recorder
-    - make 'systematic cropping' append its own function block
-      to the recording chain 
 - Use adjective dict in functions
 """ 
 
@@ -39,41 +36,37 @@ class MacroRecorder:
     def __init__(self):
         self._is_recording_parameters = False
         self._record_parameters_list = []
+
+        # key: napari name, value: standardized name
         self._record_data_dict = {
             'mask':  {},
             'image': {},
             'labels':{},
             'tracks':{},
         }
-        self._record_number_calls = {
-            'make_array_isotropic':          0,
-            'compute_mask':                  0,
-            'local_image_normalization':     0,
-            'align_array_major_axis':        0,
-            'remove_labels_outside_of_mask': 0,
-            'crop_array_using_mask':         0,
-        }
+
         self._adjective_dict = {
             'make_array_isotropic':          'isotropized',
             'compute_mask':                  'mask',
             'local_image_normalization':     'normalized',
             'align_array_major_axis':        'aligned',
-            'remove_labels_outside_of_mask': 'labels cleared',
+            'remove_labels_outside_of_mask': 'labels_cleared',
             'crop_array_using_mask':         'cropped',
         }
 
     def _reset_recording(self):
         for k in self._record_data_dict.keys():
             self._record_data_dict[k] = {}
-        for k in self._record_number_calls.keys():
-            self._record_number_calls[k] = 0
         self._record_parameters_list = []
 
     def dump_recorded_parameters(self, path: str):
         date = str(datetime.now()).split('.')[:-1][0].replace(' ','_').replace(':', '-')
         filename = f'recorded_parameters_{date}.json'
+
         with open(os.path.join(path, filename), 'w') as f:
             json.dump(self._record_parameters_list, f)
+        
+        self._reset_recording()
 
     def record(self, function_name: str, 
                layers_names_in: dict, layers_names_out: dict, 
@@ -83,34 +76,37 @@ class MacroRecorder:
         the names of the layers in the viewer
         """
 
-        self._record_number_calls['function_name'] += 1
-
         dict_in = dict()
-
-        for layer_type, layer_name in layers_names_in.items():
-            if layer_name is not None:
-                layer_in = self._record_data_dict[layer_type].get(layer_name, 'input')
-                if layer_in == 'input':
-                    self._record_data_dict[layer_type][layer_name] = 'input'
-            else:
-                layer_in = None
-
-            dict_in[layer_type] = layer_in
-
-
         dict_out = OrderedDict()
 
-        for layer_type, layer_name in layers_names_out.items():
-            if layer_name is not None:
-                layer_out = f'{layer_type}_{self._record_number_calls[function_name]}'
+        for layer_type in ['mask', 'image', 'labels', 'tracks']:
+            # building dict_in
+            layer_in = None
+            if layer_type in layers_names_in:
+                layer_name_in = layers_names_in[layer_type]
 
-                if not overwrite:
-                    out_name = f'{layer_name} {self._adjective_dict[function_name]}'
-                    self._record_data_dict[layer_type][out_name] = layer_out
-            else:
-                layer_out = None
+                if layer_name_in is not None:
+                    layer_in = self._record_data_dict[layer_type].get(layer_name_in, layer_type)
 
-            dict_out[layer_type] = layer_out 
+                dict_in[layer_type] = layer_in
+            # building dict_out
+            if layer_type in layers_names_out:
+                layer_name_out = layers_names_out[layer_type]
+
+                if layer_name_out is not None:
+                    if overwrite and layer_in is not None:
+                        layer_out = layer_in
+                    elif layer_in is not None:
+                        adjective = self._adjective_dict[function_name]
+                        layer_out = f'{layer_in}_{adjective}'
+                        self._record_data_dict[layer_type][layer_name_out] = layer_out
+                    else: 
+                        layer_out = layer_type
+                        self._record_data_dict[layer_type][layer_name_out] = layer_out
+                else:
+                    layer_out = None
+
+                dict_out[layer_type] = layer_out
 
         params = {
             'function': function_name,
@@ -129,6 +125,15 @@ class OrganoidProcessing(Container):
         super().__init__(scrollable=True)
 
         self._viewer = viewer
+
+        self._funcs_dict = {
+            'make_array_isotropic': make_array_isotropic,
+            'compute_mask': compute_mask,
+            'local_image_normalization': local_image_normalization,
+            'align_array_major_axis': align_array_major_axis,
+            'remove_labels_outside_of_mask': remove_labels_outside_of_mask,
+            'crop_array_using_mask': crop_array_using_mask,
+        }
 
         ### Recording of parameters
         self._record_parameters_path = create_widget(
@@ -159,6 +164,7 @@ class OrganoidProcessing(Container):
         )
         
         self._recorder = MacroRecorder()
+        self._is_recording_parameters = False
 
         self._record_parameters_button.clicked.connect(self._manage_recording)
         ###
@@ -312,7 +318,7 @@ class OrganoidProcessing(Container):
                 ],
             )
 
-            self._run_macro_file_path =  create_widget(
+            self._run_macro_parameters_path =  create_widget(
                 widget_type="FileEdit", 
                 options={'mode':'r', 'filter':'*.json'},
                 label='Path to macro'
@@ -348,14 +354,28 @@ class OrganoidProcessing(Container):
                 label='Path to save'
             )
 
+            self._run_macro_save_all_checkbox = create_widget(
+                widget_type="CheckBox",
+                label='Save all intermediate results',
+                options={'value': False}
+            )
+
+            self._run_macro_compress_checkbox = create_widget(
+                widget_type="CheckBox",
+                label='Compress when saving',
+                options={'value': False}
+            )
+
             self._run_macro_container = Container(
                 widgets=[
-                    self._run_macro_file_path,
+                    self._run_macro_parameters_path,
                     self._run_macro_mask_path,
                     self._run_macro_image_path,
                     self._run_macro_labels_path,
                     self._run_macro_tracks_path,
                     self._run_macro_save_path,
+                    self._run_macro_save_all_checkbox,
+                    self._run_macro_compress_checkbox,
                 ]
             )
 
@@ -711,7 +731,10 @@ class OrganoidProcessing(Container):
                             name=name,
                             **self._transmissive_image_layer_properties(layer)
                         )
-                        self._image_layer_combo.value = self._viewer.layers[-1]
+                        if array.dtype == bool:
+                            self._mask_layer_combo.value = self._viewer.layers[-1]
+                        else:
+                            self._image_layer_combo.value = self._viewer.layers[-1]
                     else:
                         self._viewer.add_labels(
                             array,
@@ -947,7 +970,10 @@ class OrganoidProcessing(Container):
                             name=name,
                             **self._transmissive_image_layer_properties(layer)
                         )
-                        self._image_layer_combo.value = self._viewer.layers[-1]
+                        if array.dtype == bool:
+                            self._mask_layer_combo.value = self._viewer.layers[-1]
+                        else:
+                            self._image_layer_combo.value = self._viewer.layers[-1]
                     else:
                         self._viewer.add_labels(
                             array,
@@ -1124,7 +1150,10 @@ class OrganoidProcessing(Container):
                             name=name,
                             **self._transmissive_image_layer_properties(layer)
                         )
-                        self._image_layer_combo.value = self._viewer.layers[-1]
+                        if array.dtype == bool:
+                            self._mask_layer_combo.value = self._viewer.layers[-1]
+                        else:
+                            self._image_layer_combo.value = self._viewer.layers[-1]
                     else:
                         self._viewer.add_labels(
                             array,
@@ -1150,22 +1179,27 @@ class OrganoidProcessing(Container):
                 overwrite=self._overwrite_checkbox.value
             )
 
+
+
+
     def _run_macro(self):
-        paramaters_path = self._run_macro_parameters_path.value
+        parameters_path = self._run_macro_parameters_path.value
         save_path = self._run_macro_save_path.value
 
-        if paramaters_path == '.' or not os.path.exists(paramaters_path):
+        if parameters_path == '.' or not os.path.exists(parameters_path):
             print('Please enter a path to the macro parameters')
             return
         if save_path == '.' or not os.path.isdir(save_path):
             print('Please enter a path to save the outputs')
             return
-        parameters_list = json.loads(self._run_macro_parameters_path.value)
+        
+        with open(parameters_path, 'r') as file:
+            parameters_list = json.loads(file.read())
 
-        mask_path = self._run_macro_mask_path.value
-        image_path = self._run_macro_image_path.value
-        labels_path = self._run_macro_labels_path.value
-        tracks_path = self._run_macro_tracks_path.value
+        mask_path = str(self._run_macro_mask_path.value)
+        image_path = str(self._run_macro_image_path.value)
+        labels_path = str(self._run_macro_labels_path.value)
+        tracks_path = str(self._run_macro_tracks_path.value)
 
         if mask_path == '.' or not os.path.exists(mask_path):
             mask_input = None
@@ -1188,70 +1222,62 @@ class OrganoidProcessing(Container):
             tracks_input = tifffile.imread(tracks_path)
 
         data_dict = {
-            'mask':OrderedDict({'input':mask_input}),
-            'image':OrderedDict({'input':image_input}),
-            'labels':OrderedDict({'input':labels_input}),
-            'tracks':OrderedDict({'input':tracks_input}),
+            'mask':OrderedDict({'mask':mask_input}),
+            'image':OrderedDict({'image':image_input}),
+            'labels':OrderedDict({'labels':labels_input}),
+            'tracks':OrderedDict({'tracks':tracks_input}),
         }
 
-        funcs_dict = {
-            'make_array_isotropic': make_array_isotropic,
-            'compute_mask': compute_mask,
-            'local_image_normalization': local_image_normalization,
-            'align_array_major_axis': align_array_major_axis,
-            'remove_labels_outside_of_mask': remove_labels_outside_of_mask,
-            'crop_array_using_mask': crop_array_using_mask,
-        }
+        if self._run_macro_compress_checkbox.value:
+            compress_params = {'compress': ('zlib', 1)}
+        else:
+            compress_params = {}
 
         for params in parameters_list:
-            function = funcs_dict[params['function']]
+            function = self._funcs_dict[params['function']]
             func_params = params['func_params']
 
             in_dict = params['in']
-            out_dict = params['out']
+            out_dict = OrderedDict(params['out'])
 
             function_inputs = {
                 k:data_dict[k][v] for k, v in in_dict.items() if v is not None
             }
 
-            results = function(**function_inputs, **func_params,
-                               return_dict=True)
-            
-            # due to the 'enumerate' function, OrderedDicts are mendatory
-            results_dict = {
-                k:results[i] for i,k in enumerate(out_dict) if k is not None
-            }
+            results = function(**function_inputs, **func_params)
 
-            # if systematic_crop:
-            #     results = crop_array_using_mask(
-            #         results_dict['mask'],
-            #         results_dict['image'] if 'image' in results_dict else None,
-            #         results_dict['labels'] if 'labels' in results_dict else None,
-            #         margin=0
-            #     )
+            out_dict = OrderedDict({k:v for k,v in out_dict.items() if v is not None})
 
-            for k, v in out_dict.items():
-                data_dict[k][v] = results_dict[k]
+            if len(out_dict) == 1:
+                results_dict = {next(iter(out_dict)):results}
+            else:
+                # enumerate returns the keys
+                results_dict = {
+                    layer_type:results[i] for i, layer_type in enumerate(out_dict)
+                }
 
-        for data_type, data_dict_of_that_type in data_dict.items():
-            # this is where the OrderedDict is useful: it allows to get
-            # the last element of the dict, which is the last output of the
-            # chain of functions
-            last_name, last_data = next(reversed(data_dict_of_that_type.items()))
-            if last_data is not None:
-                tifffile.imsave(f'{save_path}/{last_name}_{data_type}.tif', last_data)
+            for layer_type, name in out_dict.items():
+                data_dict[layer_type][name] = results_dict[layer_type]
 
+            if self._run_macro_save_all_checkbox.value:
+                for name, data in results_dict.items():
+                    if data is not None:
+                        tifffile.imwrite(
+                            f'{save_path}/{name}.tif', data
+                            **compress_params
+                        )
 
-
-
-            
-
-
-
-
-
-
-
+        if not self._run_macro_save_all_checkbox.value:
+            for _, data_dict_of_that_type in data_dict.items():
+                # this is where the OrderedDict is useful: it allows to get
+                # the last element of the dict, which is the last output of the
+                # chain of functions
+                last_name, last_data = next(reversed(data_dict_of_that_type.items()))
+                if last_data is not None:
+                    tifffile.imwrite(
+                        f'{save_path}/{last_name}.tif', last_data
+                        **compress_params
+                    )
 
 
 
