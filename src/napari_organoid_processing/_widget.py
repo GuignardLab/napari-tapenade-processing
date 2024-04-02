@@ -1228,11 +1228,6 @@ class OrganoidProcessing(Container):
             'tracks':OrderedDict({'tracks':tracks_input}),
         }
 
-        if self._run_macro_compress_checkbox.value:
-            compress_params = {'compress': ('zlib', 1)}
-        else:
-            compress_params = {}
-
         for params in parameters_list:
             function = self._funcs_dict[params['function']]
             func_params = params['func_params']
@@ -1260,10 +1255,14 @@ class OrganoidProcessing(Container):
                 data_dict[layer_type][name] = results_dict[layer_type]
 
             if self._run_macro_save_all_checkbox.value:
-                for name, data in results_dict.items():
+                for layer_type, data in results_dict.items():
                     if data is not None:
+                        if self._run_macro_compress_checkbox.value and data.dtype != bool:
+                            compress_params = {'compress': ('zlib', 1)}
+                        else:
+                            compress_params = {}
                         tifffile.imwrite(
-                            f'{save_path}/{name}.tif', data
+                            f'{save_path}/{out_dict[layer_type]}.tif', data,
                             **compress_params
                         )
 
@@ -1274,8 +1273,12 @@ class OrganoidProcessing(Container):
                 # chain of functions
                 last_name, last_data = next(reversed(data_dict_of_that_type.items()))
                 if last_data is not None:
+                    if self._run_macro_compress_checkbox.value and data.dtype != bool:
+                        compress_params = {'compress': ('zlib', 1)}
+                    else:
+                        compress_params = {}
                     tifffile.imwrite(
-                        f'{save_path}/{last_name}.tif', last_data
+                        f'{save_path}/{last_name}.tif', last_data,
                         **compress_params
                     )
 
