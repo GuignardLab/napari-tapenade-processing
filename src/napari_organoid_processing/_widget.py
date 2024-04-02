@@ -1,7 +1,10 @@
-from itertools import product
+import tifffile
 import numpy as np
 from magicgui.widgets import Container, create_widget, EmptyWidget, ComboBox
-from magicgui import magicgui
+from qtpy.QtWidgets import QComboBox, QStackedWidget
+from collections import OrderedDict
+import json
+import os
 from time import time
 from os import cpu_count
 from organoid.preprocessing.segmentation_postprocessing import remove_labels_outside_of_mask
@@ -9,21 +12,164 @@ from organoid.preprocessing.preprocessing import make_array_isotropic, compute_m
     local_image_normalization, align_array_major_axis, crop_array_using_mask
 from napari.layers import Image, Labels
 from fractions import Fraction
+from datetime import datetime
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import napari
+import napari
+
+"""
+! TODO:
+- Add manual rotation of principal axis
+- Add denoising widget
+- Add Napari progress bars https://napari.org/stable/api/napari.utils.progress.html
+- Block function calls when a function is already running ? 
+- Add tracks processing functions
+
+
+- Factorize recorder
+    - make 'systematic cropping' append its own function block
+      to the recording chain 
+- Use adjective dict in functions
+""" 
+
+
+class MacroRecorder:
+    def __init__(self):
+        self._is_recording_parameters = False
+        self._record_parameters_list = []
+        self._record_data_dict = {
+            'mask':  {},
+            'image': {},
+            'labels':{},
+            'tracks':{},
+        }
+        self._record_number_calls = {
+            'make_array_isotropic':          0,
+            'compute_mask':                  0,
+            'local_image_normalization':     0,
+            'align_array_major_axis':        0,
+            'remove_labels_outside_of_mask': 0,
+            'crop_array_using_mask':         0,
+        }
+        self._adjective_dict = {
+            'make_array_isotropic':          'isotropized',
+            'compute_mask':                  'mask',
+            'local_image_normalization':     'normalized',
+            'align_array_major_axis':        'aligned',
+            'remove_labels_outside_of_mask': 'labels cleared',
+            'crop_array_using_mask':         'cropped',
+        }
+
+    def _reset_recording(self):
+        for k in self._record_data_dict.keys():
+            self._record_data_dict[k] = {}
+        for k in self._record_number_calls.keys():
+            self._record_number_calls[k] = 0
+        self._record_parameters_list = []
+
+    def dump_recorded_parameters(self, path: str):
+        date = str(datetime.now()).split('.')[:-1][0].replace(' ','_').replace(':', '-')
+        filename = f'recorded_parameters_{date}.json'
+        with open(os.path.join(path, filename), 'w') as f:
+            json.dump(self._record_parameters_list, f)
+
+    def record(self, function_name: str, 
+               layers_names_in: dict, layers_names_out: dict, 
+               func_params: dict, overwrite: bool):
+        """
+        layer_names are dicts that map layer_type (e.g 'mask', 'image'...) to 
+        the names of the layers in the viewer
+        """
+
+        self._record_number_calls['function_name'] += 1
+
+        dict_in = dict()
+
+        for layer_type, layer_name in layers_names_in.items():
+            if layer_name is not None:
+                layer_in = self._record_data_dict[layer_type].get(layer_name, 'input')
+                if layer_in == 'input':
+                    self._record_data_dict[layer_type][layer_name] = 'input'
+            else:
+                layer_in = None
+
+            dict_in[layer_type] = layer_in
+
+
+        dict_out = OrderedDict()
+
+        for layer_type, layer_name in layers_names_out.items():
+            if layer_name is not None:
+                layer_out = f'{layer_type}_{self._record_number_calls[function_name]}'
+
+                if not overwrite:
+                    out_name = f'{layer_name} {self._adjective_dict[function_name]}'
+                    self._record_data_dict[layer_type][out_name] = layer_out
+            else:
+                layer_out = None
+
+            dict_out[layer_type] = layer_out 
+
+        params = {
+            'function': function_name,
+            'in': dict_in,
+            'out': dict_out,
+            'func_params': func_params,
+        }
+
+        self._record_parameters_list.append(params)
+        
 
 
     
 class OrganoidProcessing(Container):
     def __init__(self, viewer: "napari.viewer.Viewer"):
-        super().__init__()
+        super().__init__(scrollable=True)
 
         self._viewer = viewer
 
+        ### Recording of parameters
+        self._record_parameters_path = create_widget(
+            widget_type="FileEdit", 
+            options={'mode':'d'}
+        )
+
+        self._record_parameters_button = create_widget(
+            widget_type="PushButton", label='Record macro'
+        )
+
+        # self._record_parameters_img = create_widget(
+        #     widget_type="Image"
+        # )
+        # img = np.zeros((20,20,3), dtype='int')
+        # img[:,:,1] = 255
+        # self._record_parameters_img.set_data(img)
+        # print(self._record_parameters_img.image_rgba)
+
+        self._record_parameters_container = Container(
+            widgets=[
+                self._record_parameters_path,
+                self._record_parameters_button,
+                # self._record_parameters_img,
+            ],
+            layout='horizontal',
+            label='   Macro save directory',
+        )
+        
+        self._recorder = MacroRecorder()
+
+        self._record_parameters_button.clicked.connect(self._manage_recording)
+        ###
+
         self._overwrite_checkbox = create_widget(
             widget_type="CheckBox", label='Newly computed layers overwrite previous ones', 
+            options={'value': False}
+        )
+
+        self._systematic_crop_checkbox = create_widget(
+            widget_type="CheckBox", label='Results are systematically cropped using mask', 
             options={'value': False}
         )
 
@@ -32,220 +178,307 @@ class OrganoidProcessing(Container):
             options={'min':1, 'max':cpu_count(), 'value':cpu_count()}
         )
 
-        # Making array isotropic
-        self._isotropize_layer_combo = create_widget(
-            label='Isotropize layer', 
-            annotation="napari.layers.Layer",
-        )
 
-        self._isotropize_interp_order_combo = create_widget(
-            label='Interpolation order', 
-            options={'choices':[0, 1, 3], 'value':1},
-        )
-
-        self._isotropize_zoom_factors = create_widget(
-            widget_type="LineEdit", label='Zoom factors (ZYX)',
-            options={'value':'1,1,1'},
-        )
-
-        self._isotropize_run_button = create_widget(
-            widget_type="PushButton", label='Run isotropize'
-        )
-
-        self._isotropize_run_button.clicked.connect(self._run_isotropize)
-
-        # Computing mask
-        self._compute_mask_data_layer_combo = create_widget(
-            label='Compute mask from', 
+        self._image_layer_combo = create_widget(
+            label='   Image layer',
             annotation="napari.layers.Image",
-            options={'choices': self._not_bool_layers_filter}
+            options={'nullable': True, 'choices': self._not_bool_layers_filter}
         )
 
-
-        self._compute_mask_method_combo = create_widget(
-            label='Method', 
-            options={'choices':['otsu', 'histogram min', 'snp otsu'], 'value':'otsu'},
-        )
-
-        self._compute_mask_sigma_blur_slider = create_widget(
-            widget_type="IntSlider", label='Sigma blur (~ object size/3)',
-            options={'min':1, 'max':20, 'value':10},
-        )
-
-        self._compute_mask_threshold_factor_slider = create_widget(
-            widget_type="FloatSlider", label='Threshold mult. factor',
-            options={'min':0.3, 'max':3, 'value':1},
-        )
-
-        self._convex_hull_checkbox = create_widget(
-            widget_type="CheckBox", label='Compute convex hull',
-            options={'value': False}
-        )
-
-        self._compute_mask_run_button = create_widget(
-            widget_type="PushButton", label='Run compute mask'
-        )
-
-        self._compute_mask_run_button.clicked.connect(self._run_compute_mask)
-
-        # Local normalization
-        self._local_norm_data_layer_combo = create_widget(
-            label='Local normalization from', 
-            annotation="napari.layers.Image",
-            options={'choices': self._not_bool_layers_filter}
-        )
-
-        self._local_norm_mask_layer_combo = create_widget(
-            label='Remove values outside of mask',
+        self._mask_layer_combo = create_widget(
+            label='   Mask layer',
             annotation="napari.layers.Image",
             options={'nullable': True, 'choices': self._bool_layers_filter}
         )
 
-        self._local_norm_box_size_slider = create_widget(
-            widget_type="IntSlider", label='Box size (~ object size)',
-            options={'min':5, 'max':30, 'value':10},
-        )
 
-        self._local_norm_percentiles_slider = create_widget(
-            widget_type="FloatRangeSlider", label='Percentiles',
-            options={'min':0, 'max':100, 'value':[1, 99]},
-        )
-
-        self._local_norm_run_button = create_widget(
-            widget_type="PushButton", label='Run local normalization'
-        )
-
-        self._local_norm_run_button.clicked.connect(self._run_local_normalization)
-
-        # Aligning major axis
-        self._align_major_axis_mask_layer_combo = create_widget(
-            label='Align major axis from mask', 
-            annotation="napari.layers.Image",
-            options={'choices': self._bool_layers_filter}
-        )
-
-        self._align_major_axis_data_layer_combo = create_widget(
-            label='Align major axis of image', 
-            annotation="napari.layers.Image",
-            options={'nullable': True, 'choices': self._not_bool_layers_filter}
-        )
-
-        self._align_major_axis_labels_layer_combo = create_widget(
-            label='Align major axis of labels', 
+        self._labels_layer_combo = create_widget(
+            label='   Labels layer',
             annotation="napari.layers.Labels",
             options={'nullable': True}
         )
 
-        self._align_major_axis_rotation_plane_combo = create_widget(
-            label='Rotation plane', 
-            options={'choices':['XY', 'XZ', 'YZ'], 'value':'XY'},
+        self._tracks_layer_combo = create_widget(
+            label='   Tracks layer',
+            annotation="napari.layers.Tracks",
+            options={'nullable': True},
         )
 
-        self._align_major_axis_rotation_plane_combo.changed.connect(self._update_target_axis_choices)
 
-        self._align_major_axis_target_axis_combo = create_widget(
-            label='Target axis', 
-            options={'choices':['Y', 'X']},
+        if True: 
+            # Making array isotropic
+            self._isotropize_interp_order_combo = create_widget(
+                label='Interpolation order\n(for images)', 
+                options={'choices':[0, 1, 3], 'value':1},
+            )
+
+            self._isotropize_zoom_factors = create_widget(
+                widget_type="LineEdit", label='Zoom factors (ZYX)',
+                options={'value':'1,1,1'},
+            )
+
+            self._isotropize_container = Container(
+                widgets=[
+                    self._isotropize_interp_order_combo,
+                    self._isotropize_zoom_factors,
+                ],
+            )
+
+            # Computing mask
+            self._compute_mask_method_combo = create_widget(
+                label='Method', 
+                options={'choices':['otsu', 'histogram min', 'snp otsu'], 'value':'snp otsu'},
+            )
+
+            self._compute_mask_sigma_blur_slider = create_widget(
+                widget_type="IntSlider", label='Sigma blur (~ object size/3)',
+                options={'min':1, 'max':15, 'value':10},
+            )
+
+            self._compute_mask_threshold_factor_slider = create_widget(
+                widget_type="FloatSlider", label='Threshold mult. factor',
+                options={'min':0.3, 'max':3, 'value':1},
+            )
+
+            self._convex_hull_checkbox = create_widget(
+                widget_type="CheckBox", label='Compute convex hull\n(slower)',
+                options={'value': False}
+            )
+
+            self._compute_mask_container = Container(
+                widgets=[
+                    self._compute_mask_method_combo,
+                    self._compute_mask_sigma_blur_slider,
+                    self._compute_mask_threshold_factor_slider,
+                    self._convex_hull_checkbox,
+                ],
+            )
+
+            # Local normalization
+            self._local_norm_box_size_slider = create_widget(
+                widget_type="IntSlider", label='Box size (~ object size)',
+                options={'min':3, 'max':25, 'value':10},
+            )
+
+            self._local_norm_percentiles_slider = create_widget(
+                widget_type="FloatRangeSlider", label='Percentiles',
+                options={'min':0, 'max':100, 'value':[1, 99]},
+            )
+
+            self._local_norm_container = Container(
+                widgets=[
+                    self._local_norm_box_size_slider,
+                    self._local_norm_percentiles_slider,
+                ],
+            )
+
+            # Aligning major axis
+            self._align_major_axis_rotation_plane_combo = create_widget(
+                label='Rotation plane', 
+                options={'choices':['XY', 'XZ', 'YZ'], 'value':'XY'},
+            )
+
+            self._align_major_axis_rotation_plane_combo.changed.connect(self._update_target_axis_choices)
+
+            self._align_major_axis_target_axis_combo = create_widget(
+                label='Target axis', 
+                options={'choices':['Y', 'X']},
+            )
+
+            self._align_major_axis_container = Container(
+                widgets=[
+                    self._align_major_axis_rotation_plane_combo,
+                    self._align_major_axis_target_axis_combo,
+                ],
+            )
+
+            # Removing labels outside of mask
+            self._remove_labels_outside_of_mask_container = Container(
+                widgets=[
+                    EmptyWidget(),
+                ],
+            )
+
+            # Cropping array using mask
+            self._crop_array_using_mask_margin_int_slider = create_widget(
+                widget_type="IntSlider", label='Margin', 
+                options={'min':0, 'max':20, 'value':0},
+            )
+
+            self._crop_array_using_mask_container = Container(
+                widgets=[
+                    self._crop_array_using_mask_margin_int_slider,
+                    EmptyWidget(),
+                ],
+            )
+
+            self._run_macro_file_path =  create_widget(
+                widget_type="FileEdit", 
+                options={'mode':'r', 'filter':'*.json'},
+                label='Path to macro'
+            )
+
+            self._run_macro_mask_path = create_widget(
+                widget_type="FileEdit",
+                options={'mode':'r', 'filter':'*.tif'},
+                label='Path to mask'
+            )
+                
+            self._run_macro_image_path = create_widget(
+                widget_type="FileEdit",
+                options={'mode':'r', 'filter':'*.tif'},
+                label='Path to image'
+            )
+
+            self._run_macro_labels_path = create_widget(
+                widget_type="FileEdit",
+                options={'mode':'r', 'filter':'*.tif'},
+                label='Path to labels'
+            )
+
+            self._run_macro_tracks_path = create_widget(
+                widget_type="FileEdit",
+                options={'mode':'r', 'filter':'*.csv'},
+                label='Path to tracks'
+            )
+
+            self._run_macro_save_path = create_widget(
+                widget_type="FileEdit",
+                options={'mode':'d'},
+                label='Path to save'
+            )
+
+            self._run_macro_container = Container(
+                widgets=[
+                    self._run_macro_file_path,
+                    self._run_macro_mask_path,
+                    self._run_macro_image_path,
+                    self._run_macro_labels_path,
+                    self._run_macro_tracks_path,
+                    self._run_macro_save_path,
+                ]
+            )
+
+
+
+            list_widgets = [
+                ('Isotropize layers', self._isotropize_container),
+                ('Compute mask from image', self._compute_mask_container),
+                ('Local image normalization', self._local_norm_container),
+                ('Align layers from mask major axis', self._align_major_axis_container),
+                ('Remove labels outside of mask', self._remove_labels_outside_of_mask_container),
+                ('Crop layers using mask', self._crop_array_using_mask_container),
+                ('Run macro', self._run_macro_container),
+            ]
+
+            for _, w in list_widgets:
+                if hasattr(w, 'native'):
+                    w.native.layout().addStretch()
+                else:
+                    w.layout().addStretch()
+
+        self._run_button = create_widget(
+            widget_type="PushButton", label='Run function'
+        )
+        self._run_button.clicked.connect(self._run_current_function)
+
+        self._progress_bar = create_widget(
+            widget_type="ProgressBar", label='   Progress',
+            options={'min':0, 'max':100, 'value':0}
         )
 
-        self._align_major_axis_run_button = create_widget(
-            widget_type="PushButton", label='Run align major axis'
+        self._main_combobox = QComboBox()
+        self._main_combobox._explicitly_hidden = False
+        self._main_combobox.native = self._main_combobox
+
+        main_stack = QStackedWidget()
+        main_stack.native = main_stack
+
+        for i, (name,w) in enumerate(list_widgets):
+            self._main_combobox.addItem(name)
+            if hasattr(w, 'native'):
+                main_stack.addWidget(w.native)
+            else:
+                main_stack.addWidget(w)
+
+        self._main_combobox.currentIndexChanged.connect(main_stack.setCurrentIndex)
+        self._main_combobox.currentIndexChanged.connect(self._reset_progress_bar)
+        self._main_combobox.currentIndexChanged.connect(self._disable_irrelevant_layers)
+        self._main_combobox.name = ""
+        main_stack.name = ""
+
+        main_control = Container(
+            widgets=[
+                self._main_combobox,
+                main_stack,
+            ],
+            labels=False
         )
 
-        self._align_major_axis_run_button.clicked.connect(self._run_align_major_axis)
-
-        # Removing labels outside of mask
-        self._remove_labels_outside_of_mask_mask_layer_combo = create_widget(
-            label='Remove labels outside of mask',
-            annotation="napari.layers.Image",
-            options={'choices': self._bool_layers_filter}
-        )
-
-        self._remove_labels_outside_of_mask_labels_layer_combo = create_widget(
-            label='Remove labels outside of mask',
-            annotation="napari.layers.Labels",
-        )
-
-        self._remove_labels_outside_of_mask_run_button = create_widget(
-            widget_type="PushButton", label='Run remove labels outside of mask'
-        )
-
-        self._remove_labels_outside_of_mask_run_button.clicked.connect(self._run_remove_labels_outside_of_mask)
-
-        # Cropping array using mask
-        self._crop_array_using_mask_mask_layer_combo = create_widget(
-            label='Crop array using mask', 
-            annotation="napari.layers.Image",
-            options={'choices': self._bool_layers_filter}
-        )
-
-        self._crop_array_using_mask_data_layer_combo = create_widget(
-            label='Crop image using mask', 
-            annotation="napari.layers.Image",
-            options={'nullable': True, 'choices': self._not_bool_layers_filter}
-        )
-
-        self._crop_array_using_mask_labels_layer_combo = create_widget(
-            label='Crop labels using mask', 
-            annotation="napari.layers.Labels",
-            options={'nullable': True}
-        )
-
-        self._crop_array_using_mask_margin_int_slider = create_widget(
-            widget_type="IntSlider", label='Margin', 
-            options={'min':0, 'max':20, 'value':0},
-        )
-
-        self._crop_array_using_mask_run_button = create_widget(
-            widget_type="PushButton", label='Run crop array using mask'
-        )
-
-        self._crop_array_using_mask_run_button.clicked.connect(self._run_crop_array_using_mask)
+        choose_function_text = EmptyWidget(label='Choose function:')
+        # font = foo.native.font()
+        # font.setPointSize(44)
+        # font.setBold(True)
+        # foo.native.setFont(font)
+        # foo.visible=True
+        self._record_parameters_text = EmptyWidget(label='Macro recording settings:')
 
 
-        self_update_layer_combos_button = create_widget(
-            widget_type="PushButton", label='Update layer combos'
-        )
+
 
         # append into/extend the container with your widgets
         self.extend(
             [
-                self._overwrite_checkbox,
+                EmptyWidget(),
                 self._n_jobs_slider,
-                self._isotropize_layer_combo,
-                self._isotropize_interp_order_combo,
-                self._isotropize_zoom_factors,
-                self._isotropize_run_button,
-                self._compute_mask_data_layer_combo,
-                self._compute_mask_method_combo,
-                self._compute_mask_sigma_blur_slider,
-                self._compute_mask_threshold_factor_slider,
-                self._convex_hull_checkbox,
-                self._compute_mask_run_button,
-                self._local_norm_data_layer_combo,
-                self._local_norm_mask_layer_combo,
-                self._local_norm_box_size_slider,
-                self._local_norm_percentiles_slider,
-                self._local_norm_run_button,
-                self._align_major_axis_mask_layer_combo,
-                self._align_major_axis_data_layer_combo,
-                self._align_major_axis_labels_layer_combo,
-                self._align_major_axis_rotation_plane_combo,
-                self._align_major_axis_target_axis_combo,
-                self._align_major_axis_run_button,
-                self._remove_labels_outside_of_mask_mask_layer_combo,
-                self._remove_labels_outside_of_mask_labels_layer_combo,
-                self._remove_labels_outside_of_mask_run_button,
-                self._crop_array_using_mask_mask_layer_combo,
-                self._crop_array_using_mask_data_layer_combo,
-                self._crop_array_using_mask_labels_layer_combo,
-                self._crop_array_using_mask_margin_int_slider,
-                self._crop_array_using_mask_run_button,
-                # self_update_layer_combos_button,
+                # EmptyWidget(),
+                self._overwrite_checkbox,
+                self._systematic_crop_checkbox,
+                EmptyWidget(),
+                self._image_layer_combo,
+                self._mask_layer_combo,
+                self._labels_layer_combo,
+                self._tracks_layer_combo,
+                EmptyWidget(),
+                choose_function_text,
+                # self._main_combobox,
+                # main_stack,
+                main_control,
+                # EmptyWidget(),
+                self._run_button,
+                self._progress_bar,
+                EmptyWidget(),
+                self._record_parameters_text,
+                self._record_parameters_container,
             ]
         )
 
         
+    def _manage_recording(self):
+        path = str(self._record_parameters_path.value)
+
+        if path == '.' or not os.path.exists(path):
+            print('Please enter a path to record the macro')
+        else:
+            if not self._is_recording_parameters:
+                self._is_recording_parameters = True
+
+                self._record_parameters_button.native.setText('Save macro')
+                self._record_parameters_path.enabled = False
+            else: # if was recording
+                self._is_recording_parameters = False
+
+                self._recorder.dump_recorded_parameters(path)
+
+                self._record_parameters_button.native.setText('Record macro')
+                self._record_parameters_path.enabled = True
+
+
+
+        
+    
+        
+
     def _bool_layers_filter(self, wdg: ComboBox):
         return [
             layer
@@ -259,6 +492,93 @@ class OrganoidProcessing(Container):
             for layer in self._viewer.layers
             if isinstance(layer, Image) and layer.data.dtype != bool
         ]
+    
+    def _reset_progress_bar(self, event):
+        self._progress_bar.value = 0
+    
+    def _run_current_function(self):
+        # do that while waiting for proper parallel progress bars
+        self._progress_bar.value = 1
+
+        params = None
+
+        function_index = self._main_combobox.currentIndex()
+        if function_index == 0:
+            params = self._run_isotropize()
+        elif function_index == 1:
+            params = self._run_compute_mask()
+        elif function_index == 2:
+            params = self._run_local_normalization()
+        elif function_index == 3:
+            params = self._run_align_major_axis()
+        elif function_index == 4:
+            params = self._run_remove_labels_outside_of_mask()
+        elif function_index == 5:
+            params = self._run_crop_array_using_mask()
+        elif function_index == 6:
+            self._run_macro()
+
+        if self._is_recording_parameters and params is not None:
+            self._record_parameters_list.append(params)
+
+        # do that while waiting for proper parallel progress bars
+        self._progress_bar.value = 100
+    
+    
+    def _disable_irrelevant_layers(self, event):
+
+        if event == 0: # Isotropize
+            self._image_layer_combo.enabled = True
+            self._mask_layer_combo.enabled = True
+            self._labels_layer_combo.enabled = True
+            self._tracks_layer_combo.enabled = False #! TODO: add tracks isotropization
+        elif event == 1: # Compute mask
+            self._image_layer_combo.enabled = True
+            self._mask_layer_combo.enabled = False
+            self._labels_layer_combo.enabled = False
+            self._tracks_layer_combo.enabled = False
+        elif event == 2: # Local normalization
+            self._image_layer_combo.enabled = True
+            self._mask_layer_combo.enabled = True
+            self._labels_layer_combo.enabled = False
+            self._tracks_layer_combo.enabled = False
+        elif event == 3: # Align major axis
+            self._image_layer_combo.enabled = True
+            self._mask_layer_combo.enabled = True
+            self._labels_layer_combo.enabled = True
+            self._tracks_layer_combo.enabled = False #! TODO: add tracks rotation
+        elif event == 4: # Remove labels outside of mask
+            self._image_layer_combo.enabled = False
+            self._mask_layer_combo.enabled = True
+            self._labels_layer_combo.enabled = True
+            self._tracks_layer_combo.enabled = False
+        elif event == 5: # Crop array using mask
+            self._image_layer_combo.enabled = True
+            self._mask_layer_combo.enabled = True
+            self._labels_layer_combo.enabled = True
+            self._tracks_layer_combo.enabled = False #! TODO: add tracks cropping
+        elif event == 6: # Run macro
+            self._image_layer_combo.visible = False
+            self._mask_layer_combo.visible = False
+            self._labels_layer_combo.visible = False
+            self._tracks_layer_combo.visible = False
+            self._record_parameters_text.visible = False
+            self._record_parameters_container.visible = False
+
+        if event != 6:
+            self._image_layer_combo.visible = True
+            self._mask_layer_combo.visible = True
+            self._labels_layer_combo.visible = True
+            self._tracks_layer_combo.visible = True
+            self._record_parameters_text.visible = True
+            self._record_parameters_container.visible = True
+
+
+
+
+
+
+
 
     def _identify_layer_type(self, layer: "napari.layers.Layer"):
         layer_type = layer.__class__.__name__
@@ -267,7 +587,7 @@ class OrganoidProcessing(Container):
         else:
             return 'Other'
         
-    def _manage_comma_seperated_str_values(self, string: str, name: str, 
+    def _manage_comma_separated_str_values(self, string: str, name: str, 
                                            assert_positive: bool):
 
         try:
@@ -286,123 +606,233 @@ class OrganoidProcessing(Container):
     def _assert_basic_layer_properties(self, layer: "napari.layers.Layer", allowed_types: list):
 
         assert layer is not None, 'Please select a layer'
-        assert layer.data.ndim in (3, 4), 'The layer must be 3D'
+        assert layer.data.ndim in (3, 4), 'The layer must be 3D (ZYX) or 3D+time (TZYX)'
         layer_type = self._identify_layer_type(layer)
         assert layer_type in allowed_types, f'The layer must be part of {allowed_types}'
 
         return layer, layer_type
     
-    def _generic_image_layer_properties(self, layer: "napari.layers.Image"):
+    def _transmissive_image_layer_properties(self, layer: "napari.layers.Image"):
         return {
             'contrast_limits': layer.contrast_limits, 'gamma': layer.gamma,
             'colormap': layer.colormap, 'blending': layer.blending,
             'opacity': layer.opacity,
         }
     
-    def _generic_labels_layer_properties(self, layer: "napari.layers.Labels"):
+    def _transmissive_labels_layer_properties(self, layer: "napari.layers.Labels"):
         return {
             'color': layer.color, 'blending': layer.blending,
             'opacity': layer.opacity,
         }
-    
-    
+
+
+
 
     def _run_isotropize(self):
 
-        layer, layer_type = self._assert_basic_layer_properties(
-            self._isotropize_layer_combo.value, ['Image', 'Labels']
-        )
+        layers_properties = {
+            'mask': (),
+            'image': (),
+            'labels': (),
+        }
+
+        for layer_type in layers_properties.keys():
+            layer = getattr(self, f'_{layer_type}_layer_combo').value
+            if layer is not None:
+                layer, napari_type = self._assert_basic_layer_properties(
+                    layer, ['Image', 'Labels']
+                )
+                layers_properties[layer_type] = (layer, napari_type)
+            else:
+                layers_properties[layer_type] = (None, None)
+
+
+        if all(layer is None for layer, _ in layers_properties.values()):
+            print('Please select at least one layer')
+            return
 
         zoom_factors = self._isotropize_zoom_factors.value 
 
         assert zoom_factors is not None, 'Please enter zoom factors'
         
-        zoom_factors = self._manage_comma_seperated_str_values(
+        zoom_factors = self._manage_comma_separated_str_values(
             zoom_factors, 'zoom factors', assert_positive=True
         )
 
         if zoom_factors is None:
+            print('Invalid zoom factors')
             return
 
+        func_params = {
+            'order': self._isotropize_interp_order_combo.value,
+            'zoom_factors': zoom_factors,
+            'n_jobs': self._n_jobs_slider.value,
+        }
+
+        arrays = {
+            layer_type: (value[0].data if value[0] is not None else None) \
+                for layer_type, value in layers_properties.items()
+        }
+
         start_time = time()
-        array_isotropic = make_array_isotropic(
-            layer.data, 
-            zoom_factors,
-            order=self._isotropize_interp_order_combo.value,
-            n_jobs=self._n_jobs_slider.value
+        result_arrays = make_array_isotropic(
+            **arrays, **func_params
         )
         print(f'Isotropization took {time() - start_time} seconds')
 
-        if layer.data.dtype == bool:
-            array_isotropic = array_isotropic.astype(bool)
-
-        if self._overwrite_checkbox.value:
-            layer.data = array_isotropic
-
+        if isinstance(result_arrays, tuple):
+            multiple_results = True
+            result_counter = 0
         else:
-            if layer_type == 'Image':
-                self._viewer.add_image(
-                    array_isotropic,
-                    name=f'{layer.name} isotropic',
-                    **self._generic_image_layer_properties(layer)
-                )
+            multiple_results = False
+
+        layers_names_out = OrderedDict()
+
+        for layer_type, (layer, napari_type) in layers_properties.items():
+            if layer is not None:
+
+                if multiple_results:
+                    array = result_arrays[result_counter]
+                    result_counter += 1
+                else:
+                    array = result_arrays
+
+                if self._overwrite_checkbox.value:
+                    layer.data = array
+                    layers_names_out[layer_type] = layer.name
+                else:
+
+                    name = f'{layer.name} isotropized'
+                    layers_names_out[layer_type] = name
+
+                    if napari_type == 'Image':
+                        self._viewer.add_image(
+                            array,
+                            name=name,
+                            **self._transmissive_image_layer_properties(layer)
+                        )
+                        self._image_layer_combo.value = self._viewer.layers[-1]
+                    else:
+                        self._viewer.add_labels(
+                            array,
+                            name=name,
+                            **self._transmissive_labels_layer_properties(layer)
+                        )
+                        self._labels_layer_combo.value = self._viewer.layers[-1]
+
             else:
-                self._viewer.add_labels(
-                    array_isotropic,
-                    name=f'{layer.name} isotropic',
-                    **self._generic_labels_layer_properties(layer)
-                )
+                layers_names_out[layer_type] = None
+        
+        if self._is_recording_parameters:
+            layers_names_in = {
+                layer_type: (v[0].name if v[0] is not None else None) \
+                    for layer_type, v in layers_properties.items()
+            }
+
+            self._recorder.record(
+                function_name='make_array_isotropic',
+                layers_names_in=layers_names_in,
+                layers_names_out=layers_names_out,
+                func_params=func_params,
+                overwrite=self._overwrite_checkbox.value
+            )
+
+        if self._systematic_crop_checkbox.value and layers_properties['mask'][0] is not None:
+            old_overwrite = self._overwrite_checkbox.value
+            self._overwrite_checkbox.value = True
+            self._run_crop_array_using_mask()
+            self._overwrite_checkbox.value = old_overwrite
 
     def _run_compute_mask(self):
         
         layer, _ = self._assert_basic_layer_properties(
-            self._compute_mask_data_layer_combo.value, ['Image']
+            self._image_layer_combo.value, ['Image']
         )
+
+        func_params = {
+            'method': self._compute_mask_method_combo.value,
+            'sigma_blur': self._compute_mask_sigma_blur_slider.value,
+            'threshold_factor': self._compute_mask_threshold_factor_slider.value,
+            'compute_convex_hull': self._convex_hull_checkbox.value,
+            'n_jobs': self._n_jobs_slider.value,
+        }
 
         start_time = time()
-
         mask = compute_mask(
-            layer.data,
-            method=self._compute_mask_method_combo.value,
-            sigma_blur=self._compute_mask_sigma_blur_slider.value,
-            threshold_factor=self._compute_mask_threshold_factor_slider.value,
-            compute_convex_hull=self._convex_hull_checkbox.value,
-            n_jobs=self._n_jobs_slider.value
+            layer.data, **func_params
         )
-
         print(f'Mask computation took {time() - start_time} seconds')
 
         self._viewer.add_image(
             mask,
             name=f'{layer.name} mask',
             blending='additive',
-            opacity=0.5,
+            opacity=0.7,
+
         )
+
+        self._mask_layer_combo.value = self._viewer.layers[-1]
+            
+        if self._is_recording_parameters:
+            layers_names_in = {
+                'image': layer.name
+            }
+            layers_names_out = {
+                'mask': f'{layer.name} mask'
+            }
+
+            self._recorder.record(
+                function_name='compute_mask',
+                layers_names_in=layers_names_in,
+                layers_names_out=layers_names_out,
+                func_params=func_params,
+                overwrite=self._overwrite_checkbox.value
+            )
+        
+        if self._systematic_crop_checkbox.value:
+            old_overwrite = self._overwrite_checkbox.value
+            self._overwrite_checkbox.value = True
+            self._run_crop_array_using_mask()
+            self._overwrite_checkbox.value = old_overwrite
 
     def _run_local_normalization(self):
 
         layer, _ = self._assert_basic_layer_properties(
-            self._local_norm_data_layer_combo.value, ['Image']
+            self._image_layer_combo.value, ['Image']
         )
 
-        if self._local_norm_mask_layer_combo.value is not None:
+        layers_names_in = {
+            'image': layer.name
+        }
+
+        mask_available = self._mask_layer_combo.value is not None
+
+        if mask_available:
             mask_layer, _ = self._assert_basic_layer_properties(
-                self._local_norm_mask_layer_combo.value, ['Image']
+                self._mask_layer_combo.value, ['Image']
             )
             mask_layer_data = mask_layer.data
             assert mask_layer_data.shape == layer.data.shape, 'Mask and data must have the same shape'
+
+            layers_names_in['mask'] = mask_layer.name
         else:
             mask_layer_data = None
+            layers_names_in['mask'] = None
 
         perc_low, perc_high = self._local_norm_percentiles_slider.value
+
+        func_params = {
+            'perc_low': perc_low,
+            'perc_high': perc_high,
+            'box_size': self._local_norm_box_size_slider.value,
+            'n_jobs': self._n_jobs_slider.value,
+        }
 
         start_time = time()
         normalized_array = local_image_normalization(
             layer.data,
-            perc_low=perc_low, perc_high=perc_high,
-            box_size=self._local_norm_box_size_slider.value,
             mask=mask_layer_data,
-            n_jobs=self._n_jobs_slider.value
+            **func_params
         )
         print(f'Local normalization took {time() - start_time} seconds')
 
@@ -412,85 +842,143 @@ class OrganoidProcessing(Container):
         if self._overwrite_checkbox.value:
             layer.data = normalized_array
             layer.contrast_limits = (0, 1)
+
+            layers_names_out = {
+                'image': layer.name
+            }
         else:
+            name = f'{layer.name} normalized'
+
             self._viewer.add_image(
                 normalized_array,
-                name=f'{layer.name} normalized',
+                name=name,
                 colormap=layer.colormap, blending=layer.blending,
                 opacity=layer.opacity,
             )
 
+            self._image_layer_combo.value = self._viewer.layers[-1]
+
+            layers_names_out = {
+                'image': name
+            }
+        
+        if self._is_recording_parameters:
+            self._recorder.record(
+                function_name='local_image_normalization',
+                layers_names_in=layers_names_in,
+                layers_names_out=layers_names_out,
+                func_params=func_params,
+                overwrite=self._overwrite_checkbox.value
+            )
+
+        if mask_available and self._systematic_crop_checkbox.value:
+            old_overwrite = self._overwrite_checkbox.value
+            self._overwrite_checkbox.value = True
+            self._run_crop_array_using_mask()
+            self._overwrite_checkbox.value = old_overwrite
+
     def _run_align_major_axis(self):
 
         mask_layer, _ = self._assert_basic_layer_properties(
-            self._align_major_axis_mask_layer_combo.value, ['Image']
+            self._mask_layer_combo.value, ['Image']
         )
 
-        if self._align_major_axis_data_layer_combo.value is not None:
-            image_layer, _ = self._assert_basic_layer_properties(
-                self._align_major_axis_data_layer_combo.value, ['Image']
-            )
-            assert image_layer.data.shape == mask_layer.data.shape, 'Image and mask must have the same shape'
-        else:
-            image_layer = None
+        layers_properties = {
+            'mask': (mask_layer, 'Image'),
+        }
 
-        if self._align_major_axis_labels_layer_combo.value is not None:
-            labels_layer, _ = self._assert_basic_layer_properties(
-                self._align_major_axis_labels_layer_combo.value, ['Labels']
-            )
-            assert labels_layer.data.shape == mask_layer.data.shape, 'Labels and mask must have the same shape'
-        else:
-            labels_layer = None
+        for layer_type in ['image', 'labels']:
+            layer = getattr(self, f'_{layer_type}_layer_combo').value
+            if layer is not None:
+                layer, napari_type = self._assert_basic_layer_properties(
+                    layer, ['Image', 'Labels']
+                )
+                layers_properties[layer_type] = (layer, napari_type)
+
+                assert layer.data.shape == mask_layer.data.shape, f'{layer_type} and mask must have the same shape'
+            else:
+                layers_properties[layer_type] = (None, None)
+
+        arrays = {
+            layer_type: (value[0].data if value[0] is not None else None) \
+                for layer_type, value in layers_properties.items()
+        }
+
+        func_params = {
+            'target_axis': self._align_major_axis_target_axis_combo.value,
+            'rotation_plane': self._align_major_axis_rotation_plane_combo.value,
+            'n_jobs': self._n_jobs_slider.value,
+        }
 
         start_time = time()
-        aligned_arrays = align_array_major_axis(
-            target_axis=self._align_major_axis_target_axis_combo.value,
-            rotation_plane=self._align_major_axis_rotation_plane_combo.value,
-            mask=mask_layer.data,
-            image=image_layer.data if image_layer is not None else None,
-            labels=labels_layer.data if labels_layer is not None else None,
-            n_jobs=self._n_jobs_slider.value
+        result_arrays = align_array_major_axis(
+            **arrays, **func_params
         )
         print(f'Alignment took {time() - start_time} seconds')
 
-        if image_layer is not None and labels_layer is not None:
-            mask_rotated, image_rotated, labels_rotated = aligned_arrays
-        elif image_layer is not None:
-            mask_rotated, image_rotated = aligned_arrays
-        elif labels_layer is not None:
-            mask_rotated, labels_rotated = aligned_arrays
+        if isinstance(result_arrays, tuple):
+            multiple_results = True
+            result_counter = 0
         else:
-            mask_rotated = aligned_arrays
+            multiple_results = False
 
+        layers_names_out = OrderedDict()
 
-        if self._overwrite_checkbox.value:
-            mask_layer.data = mask_rotated
-            if image_layer is not None:
-                image_layer.data = image_rotated
-            if labels_layer is not None:
-                labels_layer.data = labels_rotated
-        else:
-            self._viewer.add_image(
-                mask_rotated,
-                name=f'{mask_layer.name} aligned',
-                blending='additive',
-                opacity=0.5,
+        for layer_type, (layer, napari_type) in layers_properties.items():
+            if layer is not None:
+
+                if multiple_results:
+                    array = result_arrays[result_counter]
+                    result_counter += 1
+                else:
+                    array = result_arrays
+
+                if self._overwrite_checkbox.value:
+                    layer.data = array
+                    layers_names_out[layer_type] = layer.name
+                else:
+
+                    name = f'{layer.name} aligned'
+                    layers_names_out[layer_type] = name
+
+                    if napari_type == 'Image':
+                        self._viewer.add_image(
+                            array,
+                            name=name,
+                            **self._transmissive_image_layer_properties(layer)
+                        )
+                        self._image_layer_combo.value = self._viewer.layers[-1]
+                    else:
+                        self._viewer.add_labels(
+                            array,
+                            name=name,
+                            **self._transmissive_labels_layer_properties(layer)
+                        )
+                        self._labels_layer_combo.value = self._viewer.layers[-1]
+
+            else:
+                layers_names_out[layer_type] = None
+
+        if self._is_recording_parameters:
+            layers_names_in = {
+                layer_type: (v[0].name if v[0] is not None else None) \
+                    for layer_type, v in layers_properties.items()
+            }
+
+            self._recorder.record(
+                function_name='align_array_major_axis',
+                layers_names_in=layers_names_in,
+                layers_names_out=layers_names_out,
+                func_params=func_params,
+                overwrite=self._overwrite_checkbox.value
             )
-
-            if image_layer is not None:
-                self._viewer.add_image(
-                    image_rotated,
-                    name=f'{image_layer.name} aligned',
-                    **self._generic_image_layer_properties(image_layer)
-                )
-
-            if labels_layer is not None:
-                self._viewer.add_labels(
-                    labels_rotated,
-                    name=f'{labels_layer.name} aligned',
-                    **self._generic_labels_layer_properties(labels_layer)
-                )
-
+    
+        if self._systematic_crop_checkbox.value:
+            old_overwrite = self._overwrite_checkbox.value
+            self._overwrite_checkbox.value = True
+            self._run_crop_array_using_mask()
+            self._overwrite_checkbox.value = old_overwrite
+ 
     def _update_target_axis_choices(self, event):
 
         if event == 'XY':
@@ -506,102 +994,273 @@ class OrganoidProcessing(Container):
     def _run_remove_labels_outside_of_mask(self):
             
         mask_layer, _ = self._assert_basic_layer_properties(
-            self._remove_labels_outside_of_mask_mask_layer_combo.value, ['Image']
+            self._mask_layer_combo.value, ['Image']
         )
 
         labels_layer, _ = self._assert_basic_layer_properties(
-            self._remove_labels_outside_of_mask_labels_layer_combo.value, ['Labels']
+            self._labels_layer_combo.value, ['Labels']
         )
 
         assert mask_layer is not None and labels_layer is not None, 'Please select both mask and labels layers'
         assert mask_layer.data.shape == labels_layer.data.shape, 'Mask and labels must have the same shape'
 
+        layers_names_in = {
+            'mask': mask_layer.name,
+            'labels': labels_layer.name,
+        }
+
+        func_params = {
+            'n_jobs': self._n_jobs_slider.value,
+        }
+
         start_time = time()
         labels_cropped = remove_labels_outside_of_mask(
             labels_layer.data,
             mask_layer.data,
-            n_jobs=self._n_jobs_slider.value
+            **func_params
         )
         print(f'Removing labels took {time() - start_time} seconds')
 
+        layers_names_out = OrderedDict()
+
         if self._overwrite_checkbox.value:
             labels_layer.data = labels_cropped
+            layers_names_out['labels'] = labels_layer.name
         else:
+            name = f'{labels_layer.name} cropped'
+
             self._viewer.add_labels(
                 labels_cropped,
-                name=f'{labels_layer.name} cropped',
-                **self._generic_labels_layer_properties(labels_layer)
+                name=name,
+                **self._transmissive_labels_layer_properties(labels_layer)
             )
+            self._labels_layer_combo.value = self._viewer.layers[-1]
+
+            layers_names_out['labels'] = name
+
+        
+        if self._is_recording_parameters:
+            self._recorder.record(
+                function_name='remove_labels_outside_of_mask',
+                layers_names_in=layers_names_in,
+                layers_names_out=layers_names_out,
+                func_params=func_params,
+                overwrite=self._overwrite_checkbox.value
+            )
+    
+        if self._systematic_crop_checkbox.value:
+            old_overwrite = self._overwrite_checkbox.value
+            self._overwrite_checkbox.value = True
+            self._run_crop_array_using_mask()
+            self._overwrite_checkbox.value = old_overwrite
 
     def _run_crop_array_using_mask(self):
             
         mask_layer, _ = self._assert_basic_layer_properties(
-            self._crop_array_using_mask_mask_layer_combo.value, ['Image']
+            self._mask_layer_combo.value, ['Image']
         )
 
-        if self._crop_array_using_mask_data_layer_combo.value is not None:
-            image_layer, _ = self._assert_basic_layer_properties(
-                self._crop_array_using_mask_data_layer_combo.value, ['Image']
-            )
-            assert image_layer.data.shape == mask_layer.data.shape, 'Data and mask must have the same shape'
-        else:
-            image_layer = None
+        layers_properties = {
+            'mask': (mask_layer, 'Image'),
+        }
 
-        if self._crop_array_using_mask_labels_layer_combo.value is not None:
-            labels_layer, _ = self._assert_basic_layer_properties(
-                self._crop_array_using_mask_labels_layer_combo.value, ['Labels']
-            )
-            assert labels_layer.data.shape == mask_layer.data.shape, 'Labels and mask must have the same shape'
-        else:
-            labels_layer = None
-        
+        for layer_type in ['image', 'labels']:
+            layer = getattr(self, f'_{layer_type}_layer_combo').value
+            if layer is not None:
+                layer, napari_type = self._assert_basic_layer_properties(
+                    layer, ['Image', 'Labels']
+                )
+                layers_properties[layer_type] = (layer, napari_type)
 
-        assert mask_layer is not None and (image_layer is not None or labels_layer is not None), 'Please select mask and data or labels layers'
+                assert layer.data.shape == mask_layer.data.shape, f'{layer_type} and mask must have the same shape'
+            else:
+                layers_properties[layer_type] = (None, None)
+
+        arrays = {
+            layer_type: (value[0].data if value[0] is not None else None) \
+                for layer_type, value in layers_properties.items()
+        }
+
+        func_params = {
+            'margin': self._crop_array_using_mask_margin_int_slider.value,
+            'n_jobs': self._n_jobs_slider.value,
+        }
+
 
         start_time = time()
-        cropped_arrays = crop_array_using_mask(
-            mask_layer.data,
-            image_layer.data if image_layer is not None else None,
-            labels_layer.data if labels_layer is not None else None,
-            margin=self._crop_array_using_mask_margin_int_slider.value,
-            n_jobs=self._n_jobs_slider.value
+        result_arrays = crop_array_using_mask(
+            **arrays, **func_params
         )
         print(f'Cropping took {time() - start_time} seconds')
 
-        if image_layer is not None and labels_layer is not None:
-            mask_cropped, image_cropped, labels_cropped = cropped_arrays
-        elif image_layer is not None:
-            mask_cropped, image_cropped = cropped_arrays
-        elif labels_layer is not None:
-            mask_cropped, labels_cropped = cropped_arrays
+        if isinstance(result_arrays, tuple):
+            multiple_results = True
+            result_counter = 0
         else:
-            mask_cropped = cropped_arrays     
+            multiple_results = False
 
-        
-        if self._overwrite_checkbox.value:
-            mask_layer.data = mask_cropped
-            if image_layer is not None:
-                image_layer.data = image_cropped
-            if labels_layer is not None:
-                labels_layer.data = labels_cropped
-        else:
-            self._viewer.add_image(
-                mask_cropped,
-                name=f'{mask_layer.name} cropped',
-                blending='additive',
-                opacity=0.5,
+        layers_names_out = OrderedDict()
+
+        for layer_type, (layer, napari_type) in layers_properties.items():
+            if layer is not None:
+
+                if multiple_results:
+                    array = result_arrays[result_counter]
+                    result_counter += 1
+                else:
+                    array = result_arrays
+
+                if self._overwrite_checkbox.value:
+                    layer.data = array
+                    layers_names_out[layer_type] = layer.name
+                else:
+
+                    name = f'{layer.name} cropped'
+                    layers_names_out[layer_type] = name
+
+                    if napari_type == 'Image':
+                        self._viewer.add_image(
+                            array,
+                            name=name,
+                            **self._transmissive_image_layer_properties(layer)
+                        )
+                        self._image_layer_combo.value = self._viewer.layers[-1]
+                    else:
+                        self._viewer.add_labels(
+                            array,
+                            name=name,
+                            **self._transmissive_labels_layer_properties(layer)
+                        )
+                        self._labels_layer_combo.value = self._viewer.layers[-1]
+
+            else:
+                layers_names_out[layer_type] = None
+
+        if self._is_recording_parameters:
+            layers_names_in = {
+                layer_type: (v[0].name if v[0] is not None else None) \
+                    for layer_type, v in layers_properties.items()
+            }
+
+            self._recorder.record(
+                function_name='crop_array_using_mask',
+                layers_names_in=layers_names_in,
+                layers_names_out=layers_names_out,
+                func_params=func_params,
+                overwrite=self._overwrite_checkbox.value
             )
 
-            if image_layer is not None:
-                self._viewer.add_image(
-                    image_cropped,
-                    name=f'{image_layer.name} cropped',
-                    **self._generic_image_layer_properties(image_layer)
-                )
+    def _run_macro(self):
+        paramaters_path = self._run_macro_parameters_path.value
+        save_path = self._run_macro_save_path.value
 
-            if labels_layer is not None:
-                self._viewer.add_labels(
-                    labels_cropped,
-                    name=f'{labels_layer.name} cropped',
-                    **self._generic_labels_layer_properties(labels_layer)
-                )
+        if paramaters_path == '.' or not os.path.exists(paramaters_path):
+            print('Please enter a path to the macro parameters')
+            return
+        if save_path == '.' or not os.path.isdir(save_path):
+            print('Please enter a path to save the outputs')
+            return
+        parameters_list = json.loads(self._run_macro_parameters_path.value)
+
+        mask_path = self._run_macro_mask_path.value
+        image_path = self._run_macro_image_path.value
+        labels_path = self._run_macro_labels_path.value
+        tracks_path = self._run_macro_tracks_path.value
+
+        if mask_path == '.' or not os.path.exists(mask_path):
+            mask_input = None
+        else:
+            mask_input = tifffile.imread(mask_path)
+        
+        if image_path == '.' or not os.path.exists(image_path):
+            image_input = None
+        else:
+            image_input = tifffile.imread(image_path)
+        
+        if labels_path == '.' or not os.path.exists(labels_path):
+            labels_input = None
+        else:
+            labels_input = tifffile.imread(labels_path)
+
+        if tracks_path == '.' or not os.path.exists(tracks_path):
+            tracks_input = None
+        else:
+            tracks_input = tifffile.imread(tracks_path)
+
+        data_dict = {
+            'mask':OrderedDict({'input':mask_input}),
+            'image':OrderedDict({'input':image_input}),
+            'labels':OrderedDict({'input':labels_input}),
+            'tracks':OrderedDict({'input':tracks_input}),
+        }
+
+        funcs_dict = {
+            'make_array_isotropic': make_array_isotropic,
+            'compute_mask': compute_mask,
+            'local_image_normalization': local_image_normalization,
+            'align_array_major_axis': align_array_major_axis,
+            'remove_labels_outside_of_mask': remove_labels_outside_of_mask,
+            'crop_array_using_mask': crop_array_using_mask,
+        }
+
+        for params in parameters_list:
+            function = funcs_dict[params['function']]
+            func_params = params['func_params']
+
+            in_dict = params['in']
+            out_dict = params['out']
+
+            function_inputs = {
+                k:data_dict[k][v] for k, v in in_dict.items() if v is not None
+            }
+
+            results = function(**function_inputs, **func_params,
+                               return_dict=True)
+            
+            # due to the 'enumerate' function, OrderedDicts are mendatory
+            results_dict = {
+                k:results[i] for i,k in enumerate(out_dict) if k is not None
+            }
+
+            # if systematic_crop:
+            #     results = crop_array_using_mask(
+            #         results_dict['mask'],
+            #         results_dict['image'] if 'image' in results_dict else None,
+            #         results_dict['labels'] if 'labels' in results_dict else None,
+            #         margin=0
+            #     )
+
+            for k, v in out_dict.items():
+                data_dict[k][v] = results_dict[k]
+
+        for data_type, data_dict_of_that_type in data_dict.items():
+            # this is where the OrderedDict is useful: it allows to get
+            # the last element of the dict, which is the last output of the
+            # chain of functions
+            last_name, last_data = next(reversed(data_dict_of_that_type.items()))
+            if last_data is not None:
+                tifffile.imsave(f'{save_path}/{last_name}_{data_type}.tif', last_data)
+
+
+
+
+            
+
+
+
+
+
+
+
+
+
+
+# path_to_data = '/home/jvanaret/data/project_egg/raw/fusion4'
+# data = tifffile.imread(f'{path_to_data}/fusion4_smol.tif')
+
+# viewer = napari.Viewer()
+# viewer.add_image(data, name='fusion4')
+# widget_op = OrganoidProcessing(viewer)
+# viewer.window.add_dock_widget(widget_op)
+
+# napari.run()
