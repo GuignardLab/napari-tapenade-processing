@@ -218,15 +218,15 @@ class OrganoidProcessing(Container):
                 options={'choices':[0, 1, 3], 'value':1},
             )
 
-            self._isotropize_zoom_factors = create_widget(
-                widget_type="LineEdit", label='Zoom factors (ZYX)',
+            self._isotropize_reshape_factors = create_widget(
+                widget_type="LineEdit", label='Reshape factors (ZYX)',
                 options={'value':'1,1,1'},
             )
 
             self._isotropize_container = Container(
                 widgets=[
                     self._isotropize_interp_order_combo,
-                    self._isotropize_zoom_factors,
+                    self._isotropize_reshape_factors,
                 ],
             )
 
@@ -308,7 +308,7 @@ class OrganoidProcessing(Container):
             # Cropping array using mask
             self._crop_array_using_mask_margin_int_slider = create_widget(
                 widget_type="IntSlider", label='Margin', 
-                options={'min':0, 'max':20, 'value':0},
+                options={'min':0, 'max':5, 'value':0},
             )
 
             self._crop_array_using_mask_container = Container(
@@ -671,21 +671,21 @@ class OrganoidProcessing(Container):
             print('Please select at least one layer')
             return
 
-        zoom_factors = self._isotropize_zoom_factors.value 
+        reshape_factors = self._isotropize_reshape_factors.value 
 
-        assert zoom_factors is not None, 'Please enter zoom factors'
+        assert reshape_factors is not None, 'Please enter reshape factors'
         
-        zoom_factors = self._manage_comma_separated_str_values(
-            zoom_factors, 'zoom factors', assert_positive=True
+        reshape_factors = self._manage_comma_separated_str_values(
+            reshape_factors, 'Reshape factors', assert_positive=True
         )
 
-        if zoom_factors is None:
-            print('Invalid zoom factors')
+        if reshape_factors is None:
+            print('Invalid reshape factors')
             return
 
         func_params = {
             'order': self._isotropize_interp_order_combo.value,
-            'zoom_factors': zoom_factors,
+            'reshape_factors': reshape_factors,
             'n_jobs': self._n_jobs_slider.value,
         }
 
