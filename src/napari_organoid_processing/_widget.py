@@ -219,14 +219,14 @@ class OrganoidProcessing(Container):
             )
 
             self._isotropize_reshape_factors = create_widget(
-                widget_type="LineEdit", label='Reshape factors (ZYX)',
-                options={'value':'1,1,1'},
+                widget_type="TupleEdit", label='Reshape factors (ZYX)',
+                options={'value':(1.,1.,1.)},
             )
 
             self._isotropize_container = Container(
                 widgets=[
                     self._isotropize_interp_order_combo,
-                    self._isotropize_reshape_factors,
+                    self._isotropize_reshape_factors
                 ],
             )
 
@@ -243,7 +243,7 @@ class OrganoidProcessing(Container):
 
             self._compute_mask_threshold_factor_slider = create_widget(
                 widget_type="FloatSlider", label='Threshold mult. factor',
-                options={'min':0.3, 'max':3, 'value':1},
+                options={'min':0.5, 'max':1.5, 'value':1},
             )
 
             self._convex_hull_checkbox = create_widget(
@@ -306,14 +306,15 @@ class OrganoidProcessing(Container):
             )
 
             # Cropping array using mask
-            self._crop_array_using_mask_margin_int_slider = create_widget(
-                widget_type="IntSlider", label='Margin', 
-                options={'min':0, 'max':5, 'value':0},
+            self._crop_array_using_mask_margin_checkbox = create_widget(
+                widget_type="CheckBox",
+                options={'value': False},
+                label='Add 1 pixel margin',
             )
 
             self._crop_array_using_mask_container = Container(
                 widgets=[
-                    self._crop_array_using_mask_margin_int_slider,
+                    self._crop_array_using_mask_margin_checkbox,
                     EmptyWidget(),
                 ],
             )
@@ -595,33 +596,12 @@ class OrganoidProcessing(Container):
 
 
 
-
-
-
-
-
     def _identify_layer_type(self, layer: "napari.layers.Layer"):
         layer_type = layer.__class__.__name__
         if layer_type in ('Image', 'Labels'):
             return layer_type
         else:
             return 'Other'
-        
-    def _manage_comma_separated_str_values(self, string: str, name: str, 
-                                           assert_positive: bool):
-
-        try:
-            values = [float(Fraction(s)) for s in string.replace(' ','').split(',')]
-        except ValueError:
-            print(f'Invalid {name}')
-            return
-        
-        if assert_positive:
-            assert all(v > 0 for v in values), f'{name} must be positive'
-
-        assert len(values) == 3, f'{name} must be 3D'
-
-        return values
     
     def _assert_basic_layer_properties(self, layer: "napari.layers.Layer", allowed_types: list):
 
@@ -671,17 +651,9 @@ class OrganoidProcessing(Container):
             print('Please select at least one layer')
             return
 
-        reshape_factors = self._isotropize_reshape_factors.value 
-
-        assert reshape_factors is not None, 'Please enter reshape factors'
+        reshape_factors = self._isotropize_reshape_factors.value
         
-        reshape_factors = self._manage_comma_separated_str_values(
-            reshape_factors, 'Reshape factors', assert_positive=True
-        )
-
-        if reshape_factors is None:
-            print('Invalid reshape factors')
-            return
+        assert not(any(factor == 0 for factor in reshape_factors)), 'Reshape factors must be non-zero'
 
         func_params = {
             'order': self._isotropize_interp_order_combo.value,
@@ -1108,7 +1080,7 @@ class OrganoidProcessing(Container):
         }
 
         func_params = {
-            'margin': self._crop_array_using_mask_margin_int_slider.value,
+            'margin': int(self._crop_array_using_mask_margin_checkbox.value),
             'n_jobs': self._n_jobs_slider.value,
         }
 
