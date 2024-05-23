@@ -184,7 +184,6 @@ class OrganoidProcessing(Container):
             options={'min':1, 'max':cpu_count(), 'value':cpu_count()}
         )
 
-
         self._image_layer_combo = create_widget(
             label='   Image layer',
             annotation="napari.layers.Image",
@@ -380,8 +379,6 @@ class OrganoidProcessing(Container):
                 ]
             )
 
-
-
             list_widgets = [
                 ('Isotropize layers', self._isotropize_container),
                 ('Compute mask from image', self._compute_mask_container),
@@ -436,13 +433,11 @@ class OrganoidProcessing(Container):
             labels=False
         )
 
-        choose_function_text = EmptyWidget(label='Choose function:')
-        # font = foo.native.font()
-        # font.setPointSize(44)
-        # font.setBold(True)
-        # foo.native.setFont(font)
-        # foo.visible=True
-        self._record_parameters_text = EmptyWidget(label='Macro recording settings:')
+        options_text = EmptyWidget(label='<big>Options:</big>')
+
+        choose_function_text = EmptyWidget(label='<big>Choose processing function:</big>')
+        
+        self._record_parameters_text = EmptyWidget(label='<big>Macro recording settings:</big>')
 
 
 
@@ -451,10 +446,14 @@ class OrganoidProcessing(Container):
         self.extend(
             [
                 EmptyWidget(),
+                options_text,
                 self._n_jobs_slider,
                 # EmptyWidget(),
                 self._overwrite_checkbox,
                 self._systematic_crop_checkbox,
+                EmptyWidget(),
+                self._record_parameters_text,
+                self._record_parameters_container,
                 EmptyWidget(),
                 self._image_layer_combo,
                 self._mask_layer_combo,
@@ -468,9 +467,6 @@ class OrganoidProcessing(Container):
                 # EmptyWidget(),
                 self._run_button,
                 self._progress_bar,
-                EmptyWidget(),
-                self._record_parameters_text,
-                self._record_parameters_container,
             ]
         )
 
