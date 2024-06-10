@@ -116,9 +116,6 @@ class MacroRecorder:
         }
 
         self._record_parameters_list.append(params)
-        
-
-
     
 class OrganoidProcessing(Container):
     def __init__(self, viewer: "napari.viewer.Viewer"):
@@ -1249,15 +1246,3 @@ class OrganoidProcessing(Container):
                         f'{save_path}/{last_name}.tif', last_data,
                         **compress_params
                     )
-
-
-
-# path_to_data = '/home/jvanaret/data/project_egg/raw/fusion4'
-# data = tifffile.imread(f'{path_to_data}/fusion4_smol.tif')
-
-# viewer = napari.Viewer()
-# viewer.add_image(data, name='fusion4')
-# widget_op = OrganoidProcessing(viewer)
-# viewer.window.add_dock_widget(widget_op)
-
-# napari.run()
