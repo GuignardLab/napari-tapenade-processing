@@ -5,13 +5,12 @@ from qtpy.QtWidgets import QComboBox, QStackedWidget
 from collections import OrderedDict
 import json
 import os
-from time import time
+from time import time, sleep
 from os import cpu_count
 from organoid.preprocessing.segmentation_postprocessing import remove_labels_outside_of_mask
 from organoid.preprocessing.preprocessing import make_array_isotropic, compute_mask, \
     local_image_normalization, align_array_major_axis, crop_array_using_mask
-from napari.layers import Image, Labels
-from fractions import Fraction
+from napari.layers import Image
 from datetime import datetime
 
 from typing import TYPE_CHECKING
@@ -22,9 +21,10 @@ import napari
 """
 ! TODO:
 - Add manual rotation of principal axis
-- Add denoising widget
 - Add Napari progress bars https://napari.org/stable/api/napari.utils.progress.html
 - Block function calls when a function is already running ? 
+    -> Instead, at the start of each function, disable the run button
+        -> does not need as the viewer state is not updated before all functions are finished
 - Add tracks processing functions
 
 
@@ -142,14 +142,6 @@ class OrganoidProcessing(Container):
             widget_type="PushButton", label='Record macro'
         )
 
-        # self._record_parameters_img = create_widget(
-        #     widget_type="Image"
-        # )
-        # img = np.zeros((20,20,3), dtype='int')
-        # img[:,:,1] = 255
-        # self._record_parameters_img.set_data(img)
-        # print(self._record_parameters_img.image_rgba)
-
         self._record_parameters_container = Container(
             widgets=[
                 self._record_parameters_path,
@@ -167,12 +159,12 @@ class OrganoidProcessing(Container):
         ###
 
         self._overwrite_checkbox = create_widget(
-            widget_type="CheckBox", label='Newly computed layers overwrite previous ones', 
+            widget_type="CheckBox", label='Newly computed layers overwrite previous ones (saves memory)', 
             options={'value': False}
         )
 
         self._systematic_crop_checkbox = create_widget(
-            widget_type="CheckBox", label='Results are systematically cropped using mask', 
+            widget_type="CheckBox", label='Results are systematically cropped using mask if available', 
             options={'value': False}
         )
 
@@ -234,7 +226,7 @@ class OrganoidProcessing(Container):
 
             self._compute_mask_sigma_blur_slider = create_widget(
                 widget_type="IntSlider", label='Sigma blur (~ object size/3)',
-                options={'min':1, 'max':15, 'value':10},
+                options={'min':1, 'max':10, 'value':3},
             )
 
             self._compute_mask_threshold_factor_slider = create_widget(
@@ -247,12 +239,18 @@ class OrganoidProcessing(Container):
                 options={'value': False}
             )
 
+            self._registered_image_checkbox = create_widget(
+                widget_type="CheckBox", label='Registered image',
+                options={'value': False}
+            )
+
             self._compute_mask_container = Container(
                 widgets=[
                     self._compute_mask_method_combo,
                     self._compute_mask_sigma_blur_slider,
                     self._compute_mask_threshold_factor_slider,
                     self._convex_hull_checkbox,
+                    self._registered_image_checkbox,
                 ],
             )
 
@@ -369,7 +367,7 @@ class OrganoidProcessing(Container):
                     self._run_macro_mask_path,
                     self._run_macro_image_path,
                     self._run_macro_labels_path,
-                    self._run_macro_tracks_path,
+                    # self._run_macro_tracks_path,
                     self._run_macro_save_path,
                     self._run_macro_save_all_checkbox,
                     self._run_macro_compress_checkbox,
@@ -395,6 +393,7 @@ class OrganoidProcessing(Container):
         self._run_button = create_widget(
             widget_type="PushButton", label='Run function'
         )
+
         self._run_button.clicked.connect(self._run_current_function)
 
         self._progress_bar = create_widget(
@@ -437,6 +436,8 @@ class OrganoidProcessing(Container):
         self._record_parameters_text = EmptyWidget(label='<big>Macro recording settings:</big>')
 
 
+        choose_layers_text = EmptyWidget(label='<big>Choose layers to process:</big>')
+
 
 
         # append into/extend the container with your widgets
@@ -445,25 +446,22 @@ class OrganoidProcessing(Container):
                 EmptyWidget(),
                 options_text,
                 self._n_jobs_slider,
-                # EmptyWidget(),
                 self._overwrite_checkbox,
                 self._systematic_crop_checkbox,
                 EmptyWidget(),
                 self._record_parameters_text,
                 self._record_parameters_container,
-                EmptyWidget(),
+                choose_layers_text,
+                # EmptyWidget(),
                 self._image_layer_combo,
                 self._mask_layer_combo,
                 self._labels_layer_combo,
-                self._tracks_layer_combo,
+                # self._tracks_layer_combo,
                 EmptyWidget(),
                 choose_function_text,
-                # self._main_combobox,
-                # main_stack,
                 main_control,
-                # EmptyWidget(),
                 self._run_button,
-                self._progress_bar,
+                # self._progress_bar,
             ]
         )
 
@@ -487,11 +485,6 @@ class OrganoidProcessing(Container):
                 self._record_parameters_button.native.setText('Record macro')
                 self._record_parameters_path.enabled = True
 
-
-
-        
-    
-        
 
     def _bool_layers_filter(self, wdg: ComboBox):
         return [
@@ -545,37 +538,37 @@ class OrganoidProcessing(Container):
             self._image_layer_combo.enabled = True
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = True
-            self._tracks_layer_combo.enabled = False #! TODO: add tracks isotropization
+            # self._tracks_layer_combo.enabled = False #! TODO: add tracks isotropization
         elif event == 1: # Compute mask
             self._image_layer_combo.enabled = True
             self._mask_layer_combo.enabled = False
             self._labels_layer_combo.enabled = False
-            self._tracks_layer_combo.enabled = False
+            # self._tracks_layer_combo.enabled = False
         elif event == 2: # Local normalization
             self._image_layer_combo.enabled = True
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = False
-            self._tracks_layer_combo.enabled = False
+            # self._tracks_layer_combo.enabled = False
         elif event == 3: # Align major axis
             self._image_layer_combo.enabled = True
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = True
-            self._tracks_layer_combo.enabled = False #! TODO: add tracks rotation
+            # self._tracks_layer_combo.enabled = False #! TODO: add tracks rotation
         elif event == 4: # Remove labels outside of mask
             self._image_layer_combo.enabled = False
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = True
-            self._tracks_layer_combo.enabled = False
+            # self._tracks_layer_combo.enabled = False
         elif event == 5: # Crop array using mask
             self._image_layer_combo.enabled = True
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = True
-            self._tracks_layer_combo.enabled = False #! TODO: add tracks cropping
+            # self._tracks_layer_combo.enabled = False #! TODO: add tracks cropping
         elif event == 6: # Run macro
             self._image_layer_combo.visible = False
             self._mask_layer_combo.visible = False
             self._labels_layer_combo.visible = False
-            self._tracks_layer_combo.visible = False
+            # self._tracks_layer_combo.visible = False
             self._record_parameters_text.visible = False
             self._record_parameters_container.visible = False
 
@@ -583,7 +576,7 @@ class OrganoidProcessing(Container):
             self._image_layer_combo.visible = True
             self._mask_layer_combo.visible = True
             self._labels_layer_combo.visible = True
-            self._tracks_layer_combo.visible = True
+            # self._tracks_layer_combo.visible = True
             self._record_parameters_text.visible = True
             self._record_parameters_container.visible = True
 
@@ -742,6 +735,7 @@ class OrganoidProcessing(Container):
             'sigma_blur': self._compute_mask_sigma_blur_slider.value,
             'threshold_factor': self._compute_mask_threshold_factor_slider.value,
             'compute_convex_hull': self._convex_hull_checkbox.value,
+            'registered_image': self._registered_image_checkbox.value,
             'n_jobs': self._n_jobs_slider.value,
         }
 
@@ -1164,7 +1158,7 @@ class OrganoidProcessing(Container):
         mask_path = str(self._run_macro_mask_path.value)
         image_path = str(self._run_macro_image_path.value)
         labels_path = str(self._run_macro_labels_path.value)
-        tracks_path = str(self._run_macro_tracks_path.value)
+        # tracks_path = str(self._run_macro_tracks_path.value)
 
         if mask_path == '.' or not os.path.exists(mask_path):
             mask_input = None
@@ -1181,16 +1175,16 @@ class OrganoidProcessing(Container):
         else:
             labels_input = tifffile.imread(labels_path)
 
-        if tracks_path == '.' or not os.path.exists(tracks_path):
-            tracks_input = None
-        else:
-            tracks_input = tifffile.imread(tracks_path)
+        # if tracks_path == '.' or not os.path.exists(tracks_path):
+        #     tracks_input = None
+        # else:
+        #     tracks_input = tifffile.imread(tracks_path)
 
         data_dict = {
             'mask':OrderedDict({'mask':mask_input}),
             'image':OrderedDict({'image':image_input}),
             'labels':OrderedDict({'labels':labels_input}),
-            'tracks':OrderedDict({'tracks':tracks_input}),
+            # 'tracks':OrderedDict({'tracks':tracks_input}),
         }
 
         for params in parameters_list:
