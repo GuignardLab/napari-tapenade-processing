@@ -207,7 +207,7 @@ class OrganoidProcessing(Container):
             )
 
             self._isotropize_reshape_factors = create_widget(
-                widget_type="TupleEdit", label='Reshape factors (ZYX)',
+                widget_type="TupleEdit", label='Reshape factors (ZYX)\n(2 => output 2x bigger)',
                 options={'value':(1.,1.,1.), 'layout':'vertical'},
             )
 
