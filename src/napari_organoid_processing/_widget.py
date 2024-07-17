@@ -18,6 +18,13 @@ if TYPE_CHECKING:
     import napari
 import napari
 
+from qtpy.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QTabWidget,
+    QSizePolicy
+)
+
 """
 ! TODO:
 - Add manual rotation of principal axis
@@ -119,7 +126,7 @@ class MacroRecorder:
     
 class OrganoidProcessing(Container):
     def __init__(self, viewer: "napari.viewer.Viewer"):
-        super().__init__(scrollable=True)
+        super().__init__(scrollable=False)
 
         self._viewer = viewer
 
@@ -426,20 +433,14 @@ class OrganoidProcessing(Container):
                 self._main_combobox,
                 main_stack,
             ],
-            labels=False
+            labels=False,
         )
 
-        options_text = EmptyWidget(label='<big>Options:</big>')
-
-        choose_function_text = EmptyWidget(label='<big>Choose processing function:</big>')
+        options_text = EmptyWidget(label='<u>Options:</u>')
+        self._record_parameters_text = EmptyWidget(label='<u>Macro recording settings:</u>')
+        self._choose_layers_text = EmptyWidget(label='<u>Choose layers to process:</u>')
+        choose_function_text = EmptyWidget(label='<u>Choose processing function:</u>')
         
-        self._record_parameters_text = EmptyWidget(label='<big>Macro recording settings:</big>')
-
-
-        choose_layers_text = EmptyWidget(label='<big>Choose layers to process:</big>')
-
-
-
         # append into/extend the container with your widgets
         self.extend(
             [
@@ -448,22 +449,42 @@ class OrganoidProcessing(Container):
                 self._n_jobs_slider,
                 self._overwrite_checkbox,
                 self._systematic_crop_checkbox,
-                EmptyWidget(),
+                # EmptyWidget(),
                 self._record_parameters_text,
                 self._record_parameters_container,
-                choose_layers_text,
+                self._choose_layers_text,
                 # EmptyWidget(),
                 self._image_layer_combo,
                 self._mask_layer_combo,
                 self._labels_layer_combo,
                 # self._tracks_layer_combo,
-                EmptyWidget(),
+                # EmptyWidget(),
                 choose_function_text,
                 main_control,
                 self._run_button,
                 # self._progress_bar,
             ]
         )
+
+        # tabs = QTabWidget()
+
+        # parameter_star_tab = create_widget(
+        #     widget_type="PushButton", label='Run function'
+        # ).native
+        # _parameter_star_tab_layout = QVBoxLayout()
+        # parameter_star_tab.setLayout(_parameter_star_tab_layout)
+        # _parameter_star_tab_layout.addWidget(parameter_star_tab)
+        # tabs.addTab(parameter_star_tab, 'StarDist Parameter Selection')
+
+        # parameter_star_tab2 = create_widget(
+        #     widget_type="PushButton", label='Run function'
+        # ).native
+        # _parameter_star_tab2_layout = QVBoxLayout()
+        # parameter_star_tab2.setLayout(_parameter_star_tab2_layout)
+        # _parameter_star_tab2_layout.addWidget(parameter_star_tab2)
+        # tabs.addTab(parameter_star_tab2, 'Cellpose Parameter Selection')
+
+        # self.native.layout().addWidget(tabs)
 
         
     def _manage_recording(self):
@@ -571,6 +592,7 @@ class OrganoidProcessing(Container):
             # self._tracks_layer_combo.visible = False
             self._record_parameters_text.visible = False
             self._record_parameters_container.visible = False
+            self._choose_layers_text.visible = False
 
         if event != 6:
             self._image_layer_combo.visible = True
@@ -579,6 +601,7 @@ class OrganoidProcessing(Container):
             # self._tracks_layer_combo.visible = True
             self._record_parameters_text.visible = True
             self._record_parameters_container.visible = True
+            self._choose_layers_text.visible = True
 
 
 
