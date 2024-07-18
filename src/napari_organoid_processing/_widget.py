@@ -9,7 +9,7 @@ from time import time, sleep
 from os import cpu_count
 from organoid.preprocessing.segmentation_postprocessing import remove_labels_outside_of_mask
 from organoid.preprocessing.preprocessing import make_array_isotropic, compute_mask, \
-    local_image_normalization, align_array_major_axis, crop_array_using_mask
+    local_image_equalization, align_array_major_axis, crop_array_using_mask
 from napari.layers import Image
 from datetime import datetime
 
@@ -55,7 +55,7 @@ class MacroRecorder:
         self._adjective_dict = {
             'make_array_isotropic':          'isotropized',
             'compute_mask':                  'mask',
-            'local_image_normalization':     'normalized',
+            'local_image_equalization':     'equalized',
             'align_array_major_axis':        'aligned',
             'remove_labels_outside_of_mask': 'labels_cleared',
             'crop_array_using_mask':         'cropped',
@@ -133,7 +133,7 @@ class OrganoidProcessing(Container):
         self._funcs_dict = {
             'make_array_isotropic': make_array_isotropic,
             'compute_mask': compute_mask,
-            'local_image_normalization': local_image_normalization,
+            'local_image_equalization': local_image_equalization,
             'align_array_major_axis': align_array_major_axis,
             'remove_labels_outside_of_mask': remove_labels_outside_of_mask,
             'crop_array_using_mask': crop_array_using_mask,
@@ -261,7 +261,7 @@ class OrganoidProcessing(Container):
                 ],
             )
 
-            # Local normalization
+            # Local equalization
             self._local_norm_box_size_slider = create_widget(
                 widget_type="IntSlider", label='Box size (~ object size)',
                 options={'min':3, 'max':25, 'value':10},
@@ -384,7 +384,7 @@ class OrganoidProcessing(Container):
             list_widgets = [
                 ('Isotropize layers', self._isotropize_container),
                 ('Compute mask from image', self._compute_mask_container),
-                ('Local image normalization', self._local_norm_container),
+                ('Local image equalization', self._local_norm_container),
                 ('Align layers from mask major axis', self._align_major_axis_container),
                 ('Remove labels outside of mask', self._remove_labels_outside_of_mask_container),
                 ('Crop layers using mask', self._crop_array_using_mask_container),
@@ -536,7 +536,7 @@ class OrganoidProcessing(Container):
         elif function_index == 1:
             params = self._run_compute_mask()
         elif function_index == 2:
-            params = self._run_local_normalization()
+            params = self._run_local_equalization()
         elif function_index == 3:
             params = self._run_align_major_axis()
         elif function_index == 4:
@@ -565,7 +565,7 @@ class OrganoidProcessing(Container):
             self._mask_layer_combo.enabled = False
             self._labels_layer_combo.enabled = False
             # self._tracks_layer_combo.enabled = False
-        elif event == 2: # Local normalization
+        elif event == 2: # Local equalization
             self._image_layer_combo.enabled = True
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = False
@@ -800,7 +800,7 @@ class OrganoidProcessing(Container):
             self._run_crop_array_using_mask()
             self._overwrite_checkbox.value = old_overwrite
 
-    def _run_local_normalization(self):
+    def _run_local_equalization(self):
 
         layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ['Image']
@@ -834,28 +834,28 @@ class OrganoidProcessing(Container):
         }
 
         start_time = time()
-        normalized_array = local_image_normalization(
+        equalized_array = local_image_equalization(
             layer.data,
             mask=mask_layer_data,
             **func_params
         )
-        print(f'Local normalization took {time() - start_time} seconds')
+        print(f'Local equalization took {time() - start_time} seconds')
 
         if mask_layer_data is not None:
-            normalized_array = np.where(mask_layer_data, normalized_array, 0.0)
+            equalized_array = np.where(mask_layer_data, equalized_array, 0.0)
 
         if self._overwrite_checkbox.value:
-            layer.data = normalized_array
+            layer.data = equalized_array
             layer.contrast_limits = (0, 1)
 
             layers_names_out = {
                 'image': layer.name
             }
         else:
-            name = f'{layer.name} normalized'
+            name = f'{layer.name} equalized'
 
             self._viewer.add_image(
-                normalized_array,
+                equalized_array,
                 name=name,
                 colormap=layer.colormap, blending=layer.blending,
                 opacity=layer.opacity,
@@ -869,7 +869,7 @@ class OrganoidProcessing(Container):
         
         if self._is_recording_parameters:
             self._recorder.record(
-                function_name='local_image_normalization',
+                function_name='local_image_equalization',
                 layers_names_in=layers_names_in,
                 layers_names_out=layers_names_out,
                 func_params=func_params,
