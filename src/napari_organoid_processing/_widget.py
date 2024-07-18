@@ -9,7 +9,8 @@ from time import time, sleep
 from os import cpu_count
 from organoid.preprocessing.segmentation_postprocessing import remove_labels_outside_of_mask
 from organoid.preprocessing.preprocessing import make_array_isotropic, compute_mask, \
-    local_image_equalization, align_array_major_axis, crop_array_using_mask
+    local_image_equalization, align_array_major_axis, crop_array_using_mask, \
+    normalize_intensity
 from napari.layers import Image
 from datetime import datetime
 
@@ -18,12 +19,12 @@ if TYPE_CHECKING:
     import napari
 import napari
 
-from qtpy.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QTabWidget,
-    QSizePolicy
-)
+# from qtpy.QtWidgets import (
+#     QWidget,
+#     QVBoxLayout,
+#     QTabWidget,
+#     QSizePolicy
+# )
 
 """
 ! TODO:
@@ -59,6 +60,7 @@ class MacroRecorder:
             'align_array_major_axis':        'aligned',
             'remove_labels_outside_of_mask': 'labels_cleared',
             'crop_array_using_mask':         'cropped',
+            'normalize_intensity':           'normalized',
         }
 
     def _reset_recording(self):
@@ -137,6 +139,7 @@ class OrganoidProcessing(Container):
             'align_array_major_axis': align_array_major_axis,
             'remove_labels_outside_of_mask': remove_labels_outside_of_mask,
             'crop_array_using_mask': crop_array_using_mask,
+            'normalize_intensity': normalize_intensity,
         }
 
         ### Recording of parameters
@@ -182,6 +185,12 @@ class OrganoidProcessing(Container):
 
         self._image_layer_combo = create_widget(
             label='   Image layer',
+            annotation="napari.layers.Image",
+            options={'nullable': True, 'choices': self._not_bool_layers_filter}
+        )
+
+        self._ref_image_layer_combo = create_widget(
+            label='   Image layer (ref)',
             annotation="napari.layers.Image",
             options={'nullable': True, 'choices': self._not_bool_layers_filter}
         )
@@ -272,10 +281,28 @@ class OrganoidProcessing(Container):
                 options={'min':0, 'max':100, 'value':[1, 99]},
             )
 
-            self._local_norm_container = Container(
+            self._local_equalization_container = Container(
                 widgets=[
                     self._local_norm_box_size_slider,
                     self._local_norm_percentiles_slider,
+                ],
+            )
+
+            # Intensity normalization
+            self._int_norm_sigma_slider = create_widget(
+                widget_type="IntSlider", label='Smoothing sigma',
+                options={'min':0, 'max':30, 'value':20},
+            )
+
+            self._int_norm_width_slider = create_widget(
+                widget_type="IntSlider", label='Width of ref plane',
+                options={'min':1, 'max':5, 'value':3},
+            )
+
+            self._int_norm_container = Container(
+                widgets=[
+                    self._int_norm_sigma_slider,
+                    self._int_norm_width_slider,
                 ],
             )
 
@@ -384,7 +411,8 @@ class OrganoidProcessing(Container):
             list_widgets = [
                 ('Isotropize layers', self._isotropize_container),
                 ('Compute mask from image', self._compute_mask_container),
-                ('Local image equalization', self._local_norm_container),
+                ('Local image equalization', self._local_equalization_container),
+                ('Intensity normalization', self._int_norm_container),
                 ('Align layers from mask major axis', self._align_major_axis_container),
                 ('Remove labels outside of mask', self._remove_labels_outside_of_mask_container),
                 ('Crop layers using mask', self._crop_array_using_mask_container),
@@ -455,6 +483,7 @@ class OrganoidProcessing(Container):
                 self._choose_layers_text,
                 # EmptyWidget(),
                 self._image_layer_combo,
+                self._ref_image_layer_combo,
                 self._mask_layer_combo,
                 self._labels_layer_combo,
                 # self._tracks_layer_combo,
@@ -465,6 +494,8 @@ class OrganoidProcessing(Container):
                 # self._progress_bar,
             ]
         )
+
+        self._disable_irrelevant_layers(0)
 
         # tabs = QTabWidget()
 
@@ -538,12 +569,14 @@ class OrganoidProcessing(Container):
         elif function_index == 2:
             params = self._run_local_equalization()
         elif function_index == 3:
-            params = self._run_align_major_axis()
+            params = self._run_normalize_intensity()
         elif function_index == 4:
-            params = self._run_remove_labels_outside_of_mask()
+            params = self._run_align_major_axis()
         elif function_index == 5:
-            params = self._run_crop_array_using_mask()
+            params = self._run_remove_labels_outside_of_mask()
         elif function_index == 6:
+            params = self._run_crop_array_using_mask()
+        elif function_index == 7:
             self._run_macro()
 
         if self._is_recording_parameters and params is not None:
@@ -557,48 +590,64 @@ class OrganoidProcessing(Container):
 
         if event == 0: # Isotropize
             self._image_layer_combo.enabled = True
+            self._ref_image_layer_combo.enabled = False
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = True
             # self._tracks_layer_combo.enabled = False #! TODO: add tracks isotropization
         elif event == 1: # Compute mask
             self._image_layer_combo.enabled = True
+            self._ref_image_layer_combo.enabled = False
             self._mask_layer_combo.enabled = False
             self._labels_layer_combo.enabled = False
             # self._tracks_layer_combo.enabled = False
         elif event == 2: # Local equalization
             self._image_layer_combo.enabled = True
+            self._ref_image_layer_combo.enabled = False
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = False
             # self._tracks_layer_combo.enabled = False
-        elif event == 3: # Align major axis
+        elif event == 3: # Normalize intensity
             self._image_layer_combo.enabled = True
-            self._mask_layer_combo.enabled = True
-            self._labels_layer_combo.enabled = True
-            # self._tracks_layer_combo.enabled = False #! TODO: add tracks rotation
-        elif event == 4: # Remove labels outside of mask
-            self._image_layer_combo.enabled = False
+            self._ref_image_layer_combo.enabled = True
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = True
             # self._tracks_layer_combo.enabled = False
-        elif event == 5: # Crop array using mask
+        elif event == 4: # Align major axis
             self._image_layer_combo.enabled = True
+            self._ref_image_layer_combo.enabled = False
+            self._mask_layer_combo.enabled = True
+            self._labels_layer_combo.enabled = True
+            # self._tracks_layer_combo.enabled = False #! TODO: add tracks rotation
+        elif event == 5: # Remove labels outside of mask
+            self._image_layer_combo.enabled = False
+            self._ref_image_layer_combo.enabled = False
+            self._mask_layer_combo.enabled = True
+            self._labels_layer_combo.enabled = True
+            # self._tracks_layer_combo.enabled = False
+        elif event == 6: # Crop array using mask
+            self._image_layer_combo.enabled = True
+            self._ref_image_layer_combo.enabled = False
             self._mask_layer_combo.enabled = True
             self._labels_layer_combo.enabled = True
             # self._tracks_layer_combo.enabled = False #! TODO: add tracks cropping
-        elif event == 6: # Run macro
+        elif event == 7: # Run macro
             self._image_layer_combo.visible = False
+            self._ref_image_layer_combo.visible = False
             self._mask_layer_combo.visible = False
             self._labels_layer_combo.visible = False
             # self._tracks_layer_combo.visible = False
+
             self._record_parameters_text.visible = False
             self._record_parameters_container.visible = False
             self._choose_layers_text.visible = False
 
-        if event != 6:
+        if event != 7:
             self._image_layer_combo.visible = True
+            self._ref_image_layer_combo.visible = True
             self._mask_layer_combo.visible = True
             self._labels_layer_combo.visible = True
             # self._tracks_layer_combo.visible = True
+
             self._record_parameters_text.visible = True
             self._record_parameters_container.visible = True
             self._choose_layers_text.visible = True
@@ -881,6 +930,123 @@ class OrganoidProcessing(Container):
             self._overwrite_checkbox.value = True
             self._run_crop_array_using_mask()
             self._overwrite_checkbox.value = old_overwrite
+
+    def _run_normalize_intensity(self):
+
+        layer, _ = self._assert_basic_layer_properties(
+            self._image_layer_combo.value, ['Image']
+        )
+
+        ref_layer, _ = self._assert_basic_layer_properties(
+            self._ref_image_layer_combo.value, ['Image']
+        )
+
+        layers_names_in = {
+            'image': layer.name,
+            'ref_image': ref_layer.name,
+        }
+
+        mask_available = self._mask_layer_combo.value is not None
+
+        if mask_available:
+            mask_layer, _ = self._assert_basic_layer_properties(
+                self._mask_layer_combo.value, ['Image']
+            )
+            mask_layer_data = mask_layer.data
+            assert mask_layer_data.shape == layer.data.shape, 'Mask and data must have the same shape'
+
+            layers_names_in['mask'] = mask_layer.name
+        else:
+            mask_layer_data = None
+            layers_names_in['mask'] = None
+
+        labels_available = self._labels_layer_combo.value is not None
+
+        if labels_available:
+            labels_layer, _ = self._assert_basic_layer_properties(
+                self._labels_layer_combo.value, ['Labels']
+            )
+            labels_layer_data = labels_layer.data
+            assert labels_layer_data.shape == layer.data.shape, 'Labels and data must have the same shape'
+
+            layers_names_in['labels'] = labels_layer.name
+        else:
+            labels_layer_data = None
+            layers_names_in['labels'] = None
+
+        sigma = self._int_norm_sigma_slider.value
+        if sigma == 0:
+            sigma = None
+        width = self._int_norm_width_slider.value
+
+        func_params = {
+            'sigma': sigma,
+            'width': width,
+            'n_jobs': self._n_jobs_slider.value,
+        }
+
+        start_time = time()
+        normalized_array, normalized_ref_array = normalize_intensity(
+            image=layer.data,
+            ref_image=ref_layer.data,
+            mask=mask_layer_data,
+            labels=labels_layer_data,
+            **func_params
+        )
+        print(f'intensity normalization took {time() - start_time} seconds')
+
+        if mask_layer_data is not None:
+            normalized_array = np.where(mask_layer_data, normalized_array, 0.0)
+            normalized_ref_array = np.where(mask_layer_data, normalized_ref_array, 0.0)
+        
+        if self._overwrite_checkbox.value:
+            layer.data = normalized_array
+            ref_layer.data = normalized_ref_array
+
+            layers_names_out = {
+                'image': layer.name,
+                'ref_image': ref_layer.name,
+            }
+        else:
+            name = f'{layer.name} normalized'
+            ref_name = f'{ref_layer.name} normalized'
+
+            self._viewer.add_image(
+                normalized_array,
+                name=name,
+                colormap=layer.colormap, blending=layer.blending,
+                opacity=layer.opacity,
+            )
+
+            self._viewer.add_image(
+                normalized_ref_array,
+                name=ref_name,
+                colormap=ref_layer.colormap, blending=ref_layer.blending,
+                opacity=ref_layer.opacity,
+            )
+
+            self._image_layer_combo.value = self._viewer.layers[-1]
+
+            layers_names_out = {
+                'image': name,
+                'ref_image': ref_name,
+            }
+        
+        if self._is_recording_parameters:
+            self._recorder.record(
+                function_name='normalize_intensity',
+                layers_names_in=layers_names_in,
+                layers_names_out=layers_names_out,
+                func_params=func_params,
+                overwrite=self._overwrite_checkbox.value
+            )
+
+        if mask_available and self._systematic_crop_checkbox.value:
+            old_overwrite = self._overwrite_checkbox.value
+            self._overwrite_checkbox.value = True
+            self._run_crop_array_using_mask()
+            self._overwrite_checkbox.value = old_overwrite
+
 
     def _run_align_major_axis(self):
 
