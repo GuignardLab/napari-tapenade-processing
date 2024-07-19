@@ -290,7 +290,8 @@ class OrganoidProcessing(Container):
 
             # Intensity normalization
             self._int_norm_sigma_slider = create_widget(
-                widget_type="IntSlider", label='Smoothing sigma',
+                widget_type="IntSlider", 
+                label='Smoothing sigma\n(0 for automated tuning)',
                 options={'min':0, 'max':30, 'value':20},
             )
 
