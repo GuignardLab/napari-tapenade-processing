@@ -222,15 +222,30 @@ class OrganoidProcessing(Container):
                 options={'choices':[0, 1, 3], 'value':1},
             )
 
-            self._isotropize_reshape_factors = create_widget(
-                widget_type="TupleEdit", label='Reshape factors (ZYX)\n(2 => output 2x bigger)',
-                options={'value':(1.,1.,1.), 'layout':'vertical'},
+            # self._isotropize_reshape_factors = create_widget(
+            #     widget_type="TupleEdit", label='Reshape factors (ZYX)\n(2 => output 2x bigger)',
+            #     options={'value':(1.,1.,1.), 'layout':'vertical'},
+            # )
+
+            self._isotropize_input_pixelsize = create_widget(
+                widget_type="TupleEdit", label='Input voxelsize (ZYX)',
+                options={'value':(1.,1.,1.), 'layout':'horizontal',
+                'options':{'min':0}},
             )
+
+            self._isotropize_output_pixelsize = create_widget(
+                widget_type="TupleEdit", label='Output voxelsize (ZYX)',
+                options={'value':(1.,1.,1.), 'layout':'horizontal',
+                'options':{'min':0}},
+            )
+
 
             self._isotropize_container = Container(
                 widgets=[
                     self._isotropize_interp_order_combo,
-                    self._isotropize_reshape_factors
+                    # self._isotropize_reshape_factors
+                    self._isotropize_input_pixelsize,
+                    self._isotropize_output_pixelsize,
                 ],
             )
 
@@ -710,13 +725,17 @@ class OrganoidProcessing(Container):
             print('Please select at least one layer')
             return
 
-        reshape_factors = self._isotropize_reshape_factors.value
+        # reshape_factors = self._isotropize_reshape_factors.value
+        input_pixelsize = self._isotropize_input_pixelsize.value
+        output_pixelsize = self._isotropize_output_pixelsize.value
         
-        assert not(any(factor == 0 for factor in reshape_factors)), 'Reshape factors must be non-zero'
+        assert not(any(factor <= 0 for factor in input_pixelsize)), 'Input voxel size must have non-zero elements'
+        assert not(any(factor <= 0 for factor in output_pixelsize)), 'Output voxel size must have non-zero elements'
 
         func_params = {
             'order': self._isotropize_interp_order_combo.value,
-            'reshape_factors': reshape_factors,
+            'input_pixelsize': input_pixelsize,
+            'output_pixelsize': output_pixelsize,
             'n_jobs': self._n_jobs_slider.value,
         }
 
