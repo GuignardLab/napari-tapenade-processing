@@ -1,30 +1,32 @@
-import tifffile
-import numpy as np
-from magicgui.widgets import Container, create_widget, EmptyWidget, ComboBox
-from qtpy.QtWidgets import QComboBox, QStackedWidget
-from collections import OrderedDict
 import json
 import os
-from time import time, sleep
-from os import cpu_count
-from organoid.preprocessing.segmentation_postprocessing import remove_labels_outside_of_mask
-from organoid.preprocessing.preprocessing import make_array_isotropic, compute_mask, \
-    local_image_equalization, align_array_major_axis, crop_array_using_mask, \
-    normalize_intensity
-from napari.layers import Image
+import warnings
+from collections import OrderedDict
 from datetime import datetime
-
+from os import cpu_count
+from time import sleep, time
 from typing import TYPE_CHECKING
+
+import numpy as np
+import tifffile
+from magicgui.widgets import ComboBox, Container, EmptyWidget, create_widget
+from napari.layers import Image
+from organoid.preprocessing.preprocessing import (align_array_major_axis,
+                                                  compute_mask,
+                                                  crop_array_using_mask,
+                                                  local_image_equalization,
+                                                  make_array_isotropic,
+                                                  normalize_intensity)
+from organoid.preprocessing.segmentation_postprocessing import \
+    remove_labels_outside_of_mask
+from qtpy.QtWidgets import QComboBox, QStackedWidget
+
+import napari.utils
+
 if TYPE_CHECKING:
     import napari
-import napari
 
-# from qtpy.QtWidgets import (
-#     QWidget,
-#     QVBoxLayout,
-#     QTabWidget,
-#     QSizePolicy
-# )
+import napari
 
 """
 ! TODO:
@@ -538,7 +540,7 @@ class OrganoidProcessing(Container):
         path = str(self._record_parameters_path.value)
 
         if path == '.' or not os.path.exists(path):
-            print('Please enter a path to record the macro')
+            napari.utils.notifications.show_warning('Please enter a path to record the macro')
         else:
             if not self._is_recording_parameters:
                 self._is_recording_parameters = True
@@ -679,10 +681,26 @@ class OrganoidProcessing(Container):
     
     def _assert_basic_layer_properties(self, layer: "napari.layers.Layer", allowed_types: list):
 
-        assert layer is not None, 'Please select a layer'
-        assert layer.data.ndim in (3, 4), 'The layer must be 3D (ZYX) or 3D+time (TZYX)'
+        if layer is None:
+            msg = 'Please select a layer'
+            napari.utils.notifications.show_warning(msg)
+            raise ValueError(msg)
+        
+        if not(layer.data.ndim in (3, 4)):
+            msg = 'The layer must be 3D (ZYX) or 3D+time (TZYX)'
+            napari.utils.notifications.show_warning(msg)
+            raise ValueError(msg)
+        
         layer_type = self._identify_layer_type(layer)
-        assert layer_type in allowed_types, f'The layer must be part of {allowed_types}'
+        if layer_type not in allowed_types:
+            msg = f'The layer must be part of {allowed_types}'
+            napari.utils.notifications.show_warning(msg)
+            raise ValueError(msg)
+
+        # assert layer is not None, 'Please select a layer'
+        # assert layer.data.ndim in (3, 4), 'The layer must be 3D (ZYX) or 3D+time (TZYX)'
+        # layer_type = self._identify_layer_type(layer)
+        # assert layer_type in allowed_types, f'The layer must be part of {allowed_types}'
 
         return layer, layer_type
     
