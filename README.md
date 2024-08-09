@@ -1,6 +1,6 @@
 # napari-tapenade-processing
 
-A collection of methods to process organoid 3D and 3D+T images in napari.
+A collection of methods to process images of deep 3D/3D+time tissues in Napari.
 
 ----------------------------------
 

@@ -8,8 +8,8 @@ contributions:
   commands:
     - id: napari-tapenade-processing.tapenade_processing
       python_name: napari_tapenade_processing:TapenadeProcessingWidget
-      title: Organoid processing widget
+      title: Tapenade processing widget
   widgets:
     - command: napari-tapenade-processing.tapenade_processing
-      display_name: Organoid Processing
+      display_name: Tapenade Processing
 
