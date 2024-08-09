@@ -1,4 +1,4 @@
-# napari-organoid-processing
+# napari-tapenade-processing
 
 A collection of methods to process organoid 3D and 3D+T images in napari.
 
@@ -16,13 +16,13 @@ https://napari.org/stable/plugins/index.html
 
 ## Installation
 
-From the repo's root, you can install `napari-organoid-processing` via [pip]:
+From the repo's root, you can install `napari-tapenade-processing` via [pip]:
 
     pip install -e .
 
 To install latest development version :
 
-    pip install git+https://github.com/jules-vanaret/napari-organoid-processing.git
+    pip install git+https://github.com/jules-vanaret/napari-tapenade-processing.git
 
 
 ## Contributing
@@ -33,7 +33,7 @@ the coverage at least stays the same before you submit a pull request.
 ## License
 
 Distributed under the terms of the [MIT] license,
-"napari-organoid-processing" is free and open source software
+"napari-tapenade-processing" is free and open source software
 
 ## Issues
 
@@ -50,7 +50,7 @@ If you encounter any problems, please [file an issue] along with a detailed desc
 [Mozilla Public License 2.0]: https://www.mozilla.org/media/MPL/2.0/index.txt
 [cookiecutter-napari-plugin]: https://github.com/napari/cookiecutter-napari-plugin
 
-[file an issue]: https://github.com/jules-vanaret/napari-organoid-processing/issues
+[file an issue]: https://github.com/jules-vanaret/napari-tapenade-processing/issues
 
 [napari]: https://github.com/napari/napari
 [tox]: https://tox.readthedocs.io/en/latest/
