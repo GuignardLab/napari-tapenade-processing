@@ -1,6 +1,14 @@
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import (QHBoxLayout, QPushButton, QScrollArea, QSizePolicy,
-                            QStackedWidget, QVBoxLayout, QWidget, QLabel)
+from qtpy.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class MultiLineTabWidget(QWidget):
@@ -11,13 +19,13 @@ class MultiLineTabWidget(QWidget):
     def initUI(self):
         self.layout = QVBoxLayout()
         self.tabBarLayout = QVBoxLayout()
-        
+
         self.scrollArea = QScrollArea()
         self.scrollArea.setWidgetResizable(True)
         self.tabContainer = QWidget()
         self.tabContainer.setLayout(self.tabBarLayout)
         self.scrollArea.setWidget(self.tabContainer)
-        
+
         self.layout.addWidget(self.scrollArea)
 
         self.stackedWidget = QStackedWidget()
@@ -37,11 +45,13 @@ class MultiLineTabWidget(QWidget):
             tabRowLayout = QHBoxLayout()
             self.tabBarLayout.addLayout(tabRowLayout)
         else:
-            tabRowLayout = self.tabBarLayout.itemAt(self.tabBarLayout.count() - 1).layout()
+            tabRowLayout = self.tabBarLayout.itemAt(
+                self.tabBarLayout.count() - 1
+            ).layout()
 
         tabRowLayout.addWidget(tabButton)
         self.tabs.append(tabButton)
-        
+
         self.stackedWidget.addWidget(widget)
 
     def onTabClicked(self, tabButton):
