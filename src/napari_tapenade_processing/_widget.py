@@ -15,11 +15,11 @@ import tifffile
 from magicgui.widgets import (ComboBox, Container, EmptyWidget, Label,
                               create_widget)
 from napari.layers import Image
-from tapenade.preprocessing.preprocessing import (align_array_major_axis,
+from tapenade.preprocessing import (align_array_major_axis,
                                                   compute_mask,
                                                   crop_array_using_mask,
                                                   local_image_equalization,
-                                                  make_array_isotropic,
+                                                  change_arrays_pixelsize,
                                                   normalize_intensity)
 from tapenade.preprocessing.segmentation_postprocessing import \
     remove_labels_outside_of_mask
@@ -64,7 +64,7 @@ class TapenadeProcessingWidget(QWidget):
         self._viewer = viewer
 
         self._funcs_dict = {
-            'make_array_isotropic': make_array_isotropic,
+            'change_arrays_pixelsize': change_arrays_pixelsize,
             'compute_mask': compute_mask,
             'local_image_equalization': local_image_equalization,
             'align_array_major_axis': align_array_major_axis,
@@ -124,33 +124,33 @@ class TapenadeProcessingWidget(QWidget):
 
         if True: 
             # Making array isotropic
-            self._isotropize_interp_order_combo = create_widget(
+            self._rescale_interp_order_combo = create_widget(
                 label='Interp order', 
                 options={'choices':[0, 1, 3], 'value':1},
             )
-            tooltip_isotropize = 'Interpolation order.\n0: Nearest, 1: Linear, 3: Cubic\nBigger means slower'
-            self._isotropize_interp_order_combo.native.setToolTip(tooltip_isotropize)
+            tooltip_rescale = 'Interpolation order.\n0: Nearest, 1: Linear, 3: Cubic\nBigger means slower'
+            self._rescale_interp_order_combo.native.setToolTip(tooltip_rescale)
 
-            isotropize_interp_order_label = Label(value='Images interp order')
-            isotropize_interp_order_label.native.setToolTip(tooltip_isotropize)
+            rescale_interp_order_label = Label(value='Images interp order')
+            rescale_interp_order_label.native.setToolTip(tooltip_rescale)
 
 
-            isotropize_interp_order_container = Container(
+            rescale_interp_order_container = Container(
                 widgets=[
-                    isotropize_interp_order_label,
-                    self._isotropize_interp_order_combo,
+                    rescale_interp_order_label,
+                    self._rescale_interp_order_combo,
                 ],
                 layout='horizontal',
                 labels=False,
             )
 
-            self._isotropize_input_pixelsize = create_widget(
+            self._rescale_input_pixelsize = create_widget(
                 widget_type="TupleEdit", label='In',
                 options={'value':(1.,1.,1.), 'layout':'vertical',
                 'options':{'min':0}},
             )
 
-            self._isotropize_output_pixelsize = create_widget(
+            self._rescale_output_pixelsize = create_widget(
                 widget_type="TupleEdit", label='Out',
                 options={'value':(1.,1.,1.), 'layout':'vertical',
                 'options':{'min':0}},
@@ -160,22 +160,22 @@ class TapenadeProcessingWidget(QWidget):
 
             pixelsizes_container = Container(
                 widgets=[
-                    self._isotropize_input_pixelsize,
-                    self._isotropize_output_pixelsize,
+                    self._rescale_input_pixelsize,
+                    self._rescale_output_pixelsize,
                 ],
                 layout='horizontal',
                 labels=True,
             )
 
-            self._isotropize_container = Container(
+            self._rescale_container = Container(
                 widgets=[
-                    isotropize_interp_order_container,
-                    # self._isotropize_interp_order_combo,
+                    rescale_interp_order_container,
+                    # self._rescale_interp_order_combo,
                     Label(value='Voxelsizes (ZYX):'),
-                    # self._isotropize_reshape_factors
-                    # self._isotropize_input_pixelsize,
+                    # self._rescale_reshape_factors
+                    # self._rescale_input_pixelsize,
                     # EmptyWidget(),
-                    # self._isotropize_output_pixelsize,
+                    # self._rescale_output_pixelsize,
                     pixelsizes_container,
                 ],
                 labels=False,
@@ -359,7 +359,7 @@ class TapenadeProcessingWidget(QWidget):
             
 
             self._dict_widgets = OrderedDict([
-                ('Rescale layers', self._isotropize_container),
+                ('Rescale layers', self._rescale_container),
                 ('Spectral filtering', self._spectral_filtering_container),
                 ('Compute mask from image', self._compute_mask_container),
                 ('Local image equalization', self._local_equalization_container),
@@ -555,7 +555,7 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         adjective_dict = {
-            'make_array_isotropic':          'isotropized',
+            'change_arrays_pixelsize':          'rescaled',
             'compute_mask':                  'mask',
             'local_image_equalization':     'equalized',
             'align_array_major_axis':        'aligned',
@@ -788,7 +788,7 @@ class TapenadeProcessingWidget(QWidget):
 
         function_index = self._main_combobox.currentIndex()
         if function_index == 0:
-            params = self._run_isotropize()
+            params = self._run_rescale()
         elif function_index == 1:
             params = self._run_compute_mask()
         elif function_index == 2:
@@ -866,7 +866,7 @@ class TapenadeProcessingWidget(QWidget):
 
 
 
-    def _run_isotropize(self):
+    def _run_rescale(self):
 
         layers_properties = {
             'mask': (),
@@ -889,15 +889,15 @@ class TapenadeProcessingWidget(QWidget):
             warnings.warn('Please select at least one layer')
             return
 
-        # reshape_factors = self._isotropize_reshape_factors.value
-        input_pixelsize = self._isotropize_input_pixelsize.value
-        output_pixelsize = self._isotropize_output_pixelsize.value
+        # reshape_factors = self._rescale_reshape_factors.value
+        input_pixelsize = self._rescale_input_pixelsize.value
+        output_pixelsize = self._rescale_output_pixelsize.value
         
         assert not(any(factor <= 0 for factor in input_pixelsize)), 'Input voxel size must have non-zero elements'
         assert not(any(factor <= 0 for factor in output_pixelsize)), 'Output voxel size must have non-zero elements'
 
         func_params = {
-            'order': self._isotropize_interp_order_combo.value,
+            'order': self._rescale_interp_order_combo.value,
             'input_pixelsize': input_pixelsize,
             'output_pixelsize': output_pixelsize,
             'n_jobs': self._n_jobs_slider.value,
@@ -909,7 +909,7 @@ class TapenadeProcessingWidget(QWidget):
         }
 
         start_time = time.time()
-        result_arrays = make_array_isotropic(
+        result_arrays = change_arrays_pixelsize(
             **arrays, **func_params
         )
         print(f'Isotropization took {time.time() - start_time} seconds')
@@ -936,7 +936,7 @@ class TapenadeProcessingWidget(QWidget):
                     layers_names_out[layer_type] = layer.name
                 else:
 
-                    name = f'{layer.name} isotropized'
+                    name = f'{layer.name} rescaled'
                     layers_names_out[layer_type] = name
 
                     if napari_type == 'Image':
@@ -967,7 +967,7 @@ class TapenadeProcessingWidget(QWidget):
             }
 
             self._recorder.record(
-                function_name='make_array_isotropic',
+                function_name='change_arrays_pixelsize',
                 layers_names_in=layers_names_in,
                 layers_names_out=layers_names_out,
                 func_params=func_params,
