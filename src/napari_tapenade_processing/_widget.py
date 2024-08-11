@@ -406,6 +406,35 @@ class TapenadeProcessingWidget(QWidget):
                 ]
             )
 
+            self._dict_funcs = OrderedDict(
+                [
+                    ("Rescale layers", self._run_rescale),
+                    ("Spectral filtering", None),
+                    ("Compute mask from image", self._run_compute_mask),
+                    (
+                        "Local image equalization",
+                        self._run_local_equalization,
+                    ),
+                    ("Intensity normalization", self._run_normalize_intensity),
+                    (
+                        "Align layers from mask major axis",
+                        self._run_align_major_axis,
+                    ),
+                    (
+                        "Remove labels outside of mask",
+                        self._run_remove_labels_outside_of_mask,
+                    ),
+                    (
+                        "Crop layers using mask",
+                        self._run_crop_array_using_mask,
+                    ),
+                    (
+                        "Masked gaussian smoothing",
+                        None,
+                    ),
+                ]
+            )
+
             self._dict_widgets_layers_visibilities = {
                 "Rescale layers": ["image", "mask", "labels"],
                 "Spectral filtering": [],
@@ -442,7 +471,7 @@ class TapenadeProcessingWidget(QWidget):
         main_stack.native = main_stack
         main_stack.name = ""
 
-        for (name, w) in self._dict_widgets.items():
+        for name, w in self._dict_widgets.items():
             # manage layout stretch and add to main combobox
             if hasattr(w, "native"):
                 w.native.layout().addStretch()
@@ -767,7 +796,10 @@ class TapenadeProcessingWidget(QWidget):
                         self._image_layer_combo.native.addItem(layer.name)
                     if self._ref_image_layer_combo.enabled:
                         self._ref_image_layer_combo.native.addItem(layer.name)
-            elif isinstance(layer, napari.layers.Labels) and self._labels_layer_combo.enabled:
+            elif (
+                isinstance(layer, napari.layers.Labels)
+                and self._labels_layer_combo.enabled
+            ):
                 self._labels_layer_combo.native.addItem(layer.name)
             # elif isinstance(layer, Tracks):
             #     self._tracks_layer_combo.addItem(layer.name)
@@ -834,21 +866,25 @@ class TapenadeProcessingWidget(QWidget):
 
         params = None
 
-        function_index = self._main_combobox.currentIndex()
-        if function_index == 0:
-            params = self._run_rescale()
-        elif function_index == 1:
-            params = self._run_compute_mask()
-        elif function_index == 2:
-            params = self._run_local_equalization()
-        elif function_index == 3:
-            params = self._run_normalize_intensity()
-        elif function_index == 4:
-            params = self._run_align_major_axis()
-        elif function_index == 5:
-            params = self._run_remove_labels_outside_of_mask()
-        elif function_index == 6:
-            params = self._run_crop_array_using_mask()
+        function_text = self._main_combobox.currentText()
+        function = self._dict_funcs[function_text]
+        params = function()
+
+        # function_index = self._main_combobox.currentIndex()
+        # if function_index == 0:
+        #     params = self._run_rescale()
+        # elif function_index == 1:
+        #     params = self._run_compute_mask()
+        # elif function_index == 2:
+        #     params = self._run_local_equalization()
+        # elif function_index == 3:
+        #     params = self._run_normalize_intensity()
+        # elif function_index == 4:
+        #     params = self._run_align_major_axis()
+        # elif function_index == 5:
+        #     params = self._run_remove_labels_outside_of_mask()
+        # elif function_index == 6:
+        #     params = self._run_crop_array_using_mask()
 
         if self._is_recording_parameters and params is not None:
             self._record_parameters_list.append(params)
@@ -1737,16 +1773,3 @@ class TapenadeProcessingWidget(QWidget):
             [tifffile.imread(tif_file) for tif_file in tif_files],
             dtype=sample_dtype,
         )
-
-
-# if __name__ == '__main__':
-#     # create a viewer and add some data
-#     viewer = napari.Viewer()
-
-#     # create the widget
-#     widget = TapenadeProcessingWidget(viewer)
-
-#     # add the widget to the viewer
-#     viewer.window.add_dock_widget(widget)
-
-#     napari.run()
