@@ -1,10 +1,10 @@
 import glob
 import json
 import os
-import time  # type: ignore
+import time
 import warnings
 from collections import OrderedDict
-from os import cpu_count
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,7 +31,7 @@ from qtpy.QtWidgets import (
 )
 from tapenade.preprocessing import (
     align_array_major_axis,
-    change_arrays_pixelsize,
+    change_array_pixelsize,
     compute_mask,
     crop_array_using_mask,
     local_image_equalization,
@@ -40,16 +40,17 @@ from tapenade.preprocessing import (
 from tapenade.preprocessing.segmentation_postprocessing import (
     remove_labels_outside_of_mask,
 )
+from tqdm.contrib.concurrent import process_map
 
 from napari_tapenade_processing._macro_recorder import MacroRecorder
+from napari_tapenade_processing._processing_graph import ProcessingGraph
 
 if TYPE_CHECKING:
     import napari
 
-import napari
-
 """
 ! TODO:
+- Use adjective_dict in functions instead of manually specifying the name of the output layers
 - Add manual rotation of principal axis
 - Add Napari progress bars https://napari.org/stable/api/napari.utils.progress.html
 - Block function calls when a function is already running ?
@@ -75,7 +76,7 @@ class TapenadeProcessingWidget(QWidget):
         self._viewer = viewer
 
         self._funcs_dict = {
-            "change_arrays_pixelsize": change_arrays_pixelsize,
+            "change_array_pixelsize": change_array_pixelsize,
             "compute_mask": compute_mask,
             "local_image_equalization": local_image_equalization,
             "align_array_major_axis": align_array_major_axis,
@@ -83,6 +84,12 @@ class TapenadeProcessingWidget(QWidget):
             "crop_array_using_mask": crop_array_using_mask,
             "normalize_intensity": normalize_intensity,
         }
+
+        self._array_layer_combo = create_widget(
+            label="Array",
+            annotation="napari.layers.Layer",
+            options={"nullable": False},
+        )
 
         self._image_layer_combo = create_widget(
             label="Image",
@@ -110,6 +117,7 @@ class TapenadeProcessingWidget(QWidget):
 
         layer_combos_container = Container(
             widgets=[
+                self._array_layer_combo,
                 self._image_layer_combo,
                 self._ref_image_layer_combo,
                 self._mask_layer_combo,
@@ -122,6 +130,7 @@ class TapenadeProcessingWidget(QWidget):
         self._update_layer_combos()
 
         # self._image_layer_combo.native.currentIndexChanged.connect(self._populate_layer_combos_values)
+        self._array_layer_combo.bind(self._bind_layer_combo)
         self._image_layer_combo.bind(self._bind_layer_combo)
         self._ref_image_layer_combo.bind(self._bind_layer_combo)
         self._mask_layer_combo.bind(self._bind_layer_combo)
@@ -388,7 +397,7 @@ class TapenadeProcessingWidget(QWidget):
                     ),
                     ("Intensity normalization", self._int_norm_container),
                     (
-                        "Align layers from mask major axis",
+                        "Align layer from mask major axis",
                         self._align_major_axis_container,
                     ),
                     (
@@ -417,7 +426,7 @@ class TapenadeProcessingWidget(QWidget):
                     ),
                     ("Intensity normalization", self._run_normalize_intensity),
                     (
-                        "Align layers from mask major axis",
+                        "Align layer from mask major axis",
                         self._run_align_major_axis,
                     ),
                     (
@@ -436,7 +445,7 @@ class TapenadeProcessingWidget(QWidget):
             )
 
             self._dict_widgets_layers_visibilities = {
-                "Rescale layers": ["image", "mask", "labels"],
+                "Rescale layers": ["array"],
                 "Spectral filtering": [],
                 "Compute mask from image": ["image"],
                 "Local image equalization": ["image", "mask"],
@@ -446,13 +455,12 @@ class TapenadeProcessingWidget(QWidget):
                     "mask",
                     "labels",
                 ],
-                "Align layers from mask major axis": [
-                    "image",
+                "Align layer from mask major axis": [
+                    "array",
                     "mask",
-                    "labels",
                 ],
                 "Remove labels outside of mask": ["mask", "labels"],
-                "Crop layers using mask": ["image", "mask", "labels"],
+                "Crop layers using mask": ["array", "mask"],
                 "Masked gaussian smoothing": [],
             }
 
@@ -559,34 +567,6 @@ class TapenadeProcessingWidget(QWidget):
             1
         ].setPlaceholderText("Path to the macro json")
 
-        self._run_macro_mask_path = create_widget(
-            widget_type="FileEdit", options={"mode": "d"}, label="Mask"
-        )
-        self._run_macro_mask_path.native.children()[1].setPlaceholderText(
-            "Path to mask folder"
-        )
-
-        self._run_macro_image_path = create_widget(
-            widget_type="FileEdit", options={"mode": "d"}, label="Image"
-        )
-        self._run_macro_image_path.native.children()[1].setPlaceholderText(
-            "Path to image folder"
-        )
-
-        self._run_macro_labels_path = create_widget(
-            widget_type="FileEdit", options={"mode": "d"}, label="Labels"
-        )
-        self._run_macro_labels_path.native.children()[1].setPlaceholderText(
-            "Path to labels folder"
-        )
-
-        self._run_macro_tracks_path = create_widget(
-            widget_type="FileEdit", options={"mode": "d"}, label="Tracks"
-        )
-        self._run_macro_tracks_path.native.children()[1].setPlaceholderText(
-            "Path to tracks folder"
-        )
-
         self._run_macro_save_path = create_widget(
             widget_type="FileEdit", options={"mode": "d"}, label="Save"
         )
@@ -594,11 +574,14 @@ class TapenadeProcessingWidget(QWidget):
             "Path to save the results"
         )
 
+        self._macro_widgets = {}
+
         self._run_macro_save_all_checkbox = create_widget(
             widget_type="CheckBox",
             label="Save all intermediate results",
             options={"value": False},
         )
+        self._run_macro_save_all_checkbox.native.setEnabled(False)
 
         self._run_macro_compress_checkbox = create_widget(
             widget_type="CheckBox",
@@ -609,45 +592,55 @@ class TapenadeProcessingWidget(QWidget):
         self._run_macro_button = create_widget(
             widget_type="PushButton", label="Run macro"
         )
-
         self._run_macro_button.clicked.connect(self._run_macro)
+
+        self._test_button = create_widget(
+            widget_type="PushButton", label="Test"
+        )
+        self._test_button.clicked.connect(self._test)
 
         self._macro_tab_container = Container(
             widgets=[
+                Label(value="<u>Recording macro</u>"),
+                Label(value="Path to save the macro json file:"),
                 self._record_parameters_path,
                 self._record_parameters_button,
                 EmptyWidget(),
-                Label(value="<u>Paths to macro parameters:</u>"),
+                Label(value="<u>Running macro</u>"),
+                Label(value="Paths to macro parameters:"),
                 self._run_macro_parameters_path,
-                self._run_macro_mask_path,
-                self._run_macro_image_path,
-                self._run_macro_labels_path,
-                # self._run_macro_tracks_path,
-                self._run_macro_save_path,
-                self._run_macro_save_all_checkbox,
-                self._run_macro_compress_checkbox,
-                self._run_macro_button,
+                # EmptyWidget(),
+                # self._test_button,
             ],
             layout="vertical",
             labels=False,
         )
 
+        self._run_macro_parameters_path.changed.connect(
+            self._update_macro_widgets
+        )
+
         adjective_dict = {
-            "change_arrays_pixelsize": "rescaled",
+            "change_array_pixelsize": "rescaled",
             "compute_mask": "mask",
             "local_image_equalization": "equalized",
             "align_array_major_axis": "aligned",
-            "remove_labels_outside_of_mask": "labels_cleared",
+            "remove_labels_outside_of_mask": "curated",
             "crop_array_using_mask": "cropped",
             "normalize_intensity": "normalized",
             "masked_gaussian_smoothing": "smoothed",
             "spectral_filtering": "filtered",
         }
+        self._adjective_dict = adjective_dict
 
-        self._recorder = MacroRecorder(adjective_dict)
+        self._recorder = MacroRecorder()
         self._is_recording_parameters = False
 
-        self._record_parameters_button.clicked.connect(self._manage_recording)
+        self._record_parameters_button.clicked.connect(
+            self._manage_macro_widget
+        )
+
+        self._processing_graph = None
         ###
 
         # options_text = EmptyWidget(label='<u>Options:</u>')
@@ -706,12 +699,14 @@ class TapenadeProcessingWidget(QWidget):
             "This can be useful to save memory.\n"
             "If not, a suffix will be added to the new layers names."
         )
+        # self._overwrite_checkbox.native.setEnabled(False)
 
         self._systematic_crop_checkbox = create_widget(
             widget_type="CheckBox",
             label="Results are cropped using mask",
             options={"value": False},
         )
+        self._systematic_crop_checkbox.native.setEnabled(False)
 
         self._systematic_crop_checkbox.native.setToolTip(
             "If checked, the results of the functions will be systematically cropped using the mask.\n"
@@ -722,7 +717,7 @@ class TapenadeProcessingWidget(QWidget):
         self._n_jobs_slider = create_widget(
             widget_type="IntSlider",
             label="# parallel jobs",
-            options={"min": 1, "max": cpu_count(), "value": cpu_count()},
+            options={"min": 1, "max": os.cpu_count(), "value": os.cpu_count()},
         )
 
         self._advanced_parameters_tab_container = Container(
@@ -758,6 +753,13 @@ class TapenadeProcessingWidget(QWidget):
         self._disable_irrelevant_layers(0)
         self._update_layer_combos()
 
+    def _test(self):
+        print("test")
+        # self._macro_tab_container.append(
+        #     Label(value="test")
+        # )
+        self._macro_tab_container.clear()
+
     def _bind_layer_combo(self, obj):
         """
         This used so that when calling layer_combo.value, we get the layer object,
@@ -775,6 +777,7 @@ class TapenadeProcessingWidget(QWidget):
 
         # clear all combos and add None
         for c in (
+            self._array_layer_combo,
             self._image_layer_combo,
             self._ref_image_layer_combo,
             self._mask_layer_combo,
@@ -783,10 +786,17 @@ class TapenadeProcessingWidget(QWidget):
         ):
             previous_texts.append(c.native.currentText())
             c.native.clear()
-            c.native.addItem(None)
+            # check if combo is nullable
+            if c.native.property("nullable"):
+                c.native.addItem(None)
 
         # add layers to compatible combos
         for layer in self._viewer.layers:
+            if (
+                isinstance(layer, napari.layers.Image | napari.layers.Labels)
+                and self._array_layer_combo.enabled
+            ):
+                self._array_layer_combo.native.addItem(layer.name)
             if isinstance(layer, napari.layers.Image):
                 if layer.data.dtype == bool:
                     if self._mask_layer_combo.enabled:
@@ -804,9 +814,10 @@ class TapenadeProcessingWidget(QWidget):
             # elif isinstance(layer, Tracks):
             #     self._tracks_layer_combo.addItem(layer.name)
 
-        # reset combo to previous text if possible
+        # reset combo current choice to previous text if possible
         for index_c, c in enumerate(
             [
+                self._array_layer_combo,
                 self._image_layer_combo,
                 self._ref_image_layer_combo,
                 self._mask_layer_combo,
@@ -827,7 +838,7 @@ class TapenadeProcessingWidget(QWidget):
             else:
                 c.native.setCurrentIndex(0)
 
-    def _manage_recording(self):
+    def _manage_macro_widget(self):
         path = str(self._record_parameters_path.value)
 
         if path == "." or not os.path.exists(path):
@@ -863,31 +874,10 @@ class TapenadeProcessingWidget(QWidget):
         ]
 
     def _run_current_function(self):
-
-        params = None
-
         function_text = self._main_combobox.currentText()
         function = self._dict_funcs[function_text]
-        params = function()
-
-        # function_index = self._main_combobox.currentIndex()
-        # if function_index == 0:
-        #     params = self._run_rescale()
-        # elif function_index == 1:
-        #     params = self._run_compute_mask()
-        # elif function_index == 2:
-        #     params = self._run_local_equalization()
-        # elif function_index == 3:
-        #     params = self._run_normalize_intensity()
-        # elif function_index == 4:
-        #     params = self._run_align_major_axis()
-        # elif function_index == 5:
-        #     params = self._run_remove_labels_outside_of_mask()
-        # elif function_index == 6:
-        #     params = self._run_crop_array_using_mask()
-
-        if self._is_recording_parameters and params is not None:
-            self._record_parameters_list.append(params)
+        # run function
+        function()
 
     def _disable_irrelevant_layers(self, event):
 
@@ -895,9 +885,10 @@ class TapenadeProcessingWidget(QWidget):
 
         list_layers_enabled = self._dict_widgets_layers_visibilities[name]
 
-        for layer_type in ["image", "ref_image", "mask", "labels"]:
+        for layer_type in ["array", "image", "ref_image", "mask", "labels"]:
             combo = getattr(self, f"_{layer_type}_layer_combo")
-            combo.enabled = layer_type in list_layers_enabled
+            # combo.enabled = layer_type in list_layers_enabled
+            combo.visible = layer_type in list_layers_enabled
 
     def _identify_layer_type(self, layer: "napari.layers.Layer"):
         layer_type = layer.__class__.__name__
@@ -955,27 +946,12 @@ class TapenadeProcessingWidget(QWidget):
 
     def _run_rescale(self):
 
-        layers_properties = {
-            "mask": (),
-            "image": (),
-            "labels": (),
-        }
+        layer, layer_type = self._assert_basic_layer_properties(
+            self._array_layer_combo.value, ["Image", "Labels"]
+        )
+        if layer.data.dtype == bool:
+            layer_type = "Mask"
 
-        for layer_type in layers_properties:
-            layer = getattr(self, f"_{layer_type}_layer_combo").value
-            if layer is not None:
-                layer, napari_type = self._assert_basic_layer_properties(
-                    layer, ["Image", "Labels"]
-                )
-                layers_properties[layer_type] = (layer, napari_type)
-            else:
-                layers_properties[layer_type] = (None, None)
-
-        if all(layer is None for layer, _ in layers_properties.values()):
-            warnings.warn("Please select at least one layer")
-            return
-
-        # reshape_factors = self._rescale_reshape_factors.value
         input_pixelsize = self._rescale_input_pixelsize.value
         output_pixelsize = self._rescale_output_pixelsize.value
 
@@ -993,91 +969,51 @@ class TapenadeProcessingWidget(QWidget):
             "n_jobs": self._n_jobs_slider.value,
         }
 
-        arrays = {
-            layer_type: (value[0].data if value[0] is not None else None)
-            for layer_type, value in layers_properties.items()
-        }
+        if layer_type in ("Labels", "Mask"):
+            func_params["order"] = 0
 
         start_time = time.time()
-        result_arrays = change_arrays_pixelsize(**arrays, **func_params)
-        print(f"Isotropization took {time.time() - start_time} seconds")
+        result_array = change_array_pixelsize(layer.data, **func_params)
+        print(f"Array rescaling took {time.time() - start_time} seconds")
 
-        if isinstance(result_arrays, tuple):
-            multiple_results = True
-            result_counter = 0
+        old_name = layer.name
+        name = f"{old_name}_{self._adjective_dict['change_array_pixelsize']}"
+
+        if self._overwrite_checkbox.value:
+            layer.data = result_array
+            layer.name = name
         else:
-            multiple_results = False
-
-        layers_names_out = OrderedDict()
-
-        for layer_type, (layer, napari_type) in layers_properties.items():
-            if layer is not None:
-
-                if multiple_results:
-                    array = result_arrays[result_counter]
-                    result_counter += 1
-                else:
-                    array = result_arrays
-
-                if self._overwrite_checkbox.value:
-                    layer.data = array
-                    layers_names_out[layer_type] = layer.name
-                else:
-
-                    name = f"{layer.name} rescaled"
-                    layers_names_out[layer_type] = name
-
-                    if napari_type == "Image":
-                        self._viewer.add_image(
-                            array,
-                            name=name,
-                            **self._transmissive_image_layer_properties(layer),
-                        )
-                        if array.dtype == bool:
-                            self._mask_layer_combo.native.setCurrentIndex(
-                                self._mask_layer_combo.native.count() - 1
-                            )
-                        else:
-                            self._image_layer_combo.native.setCurrentIndex(
-                                self._image_layer_combo.native.count() - 1
-                            )
-                    else:
-                        self._viewer.add_labels(
-                            array,
-                            name=name,
-                            **self._transmissive_labels_layer_properties(
-                                layer
-                            ),
-                        )
-                        self._labels_layer_combo.native.setCurrentIndex(
-                            self._labels_layer_combo.native.count() - 1
-                        )
-
+            if layer_type in ("Image", "Mask"):
+                self._viewer.add_image(
+                    result_array,
+                    name=name,
+                    **self._transmissive_image_layer_properties(layer),
+                )
             else:
-                layers_names_out[layer_type] = None
-
-        if self._is_recording_parameters:
-            layers_names_in = {
-                layer_type: (v[0].name if v[0] is not None else None)
-                for layer_type, v in layers_properties.items()
-            }
-
-            self._recorder.record(
-                function_name="change_arrays_pixelsize",
-                layers_names_in=layers_names_in,
-                layers_names_out=layers_names_out,
-                func_params=func_params,
-                overwrite=self._overwrite_checkbox.value,
+                self._viewer.add_labels(
+                    result_array,
+                    name=name,
+                    **self._transmissive_labels_layer_properties(layer),
+                )
+            self._array_layer_combo.native.setCurrentIndex(
+                self._array_layer_combo.native.count() - 1
             )
 
-        if (
-            self._systematic_crop_checkbox.value
-            and layers_properties["mask"][0] is not None
-        ):
-            old_overwrite = self._overwrite_checkbox.value
-            self._overwrite_checkbox.value = True
-            self._run_crop_array_using_mask()
-            self._overwrite_checkbox.value = old_overwrite
+        if self._is_recording_parameters:
+
+            input_params_to_layer_names_and_types_dict = {
+                "array": (old_name, layer_type),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("rescaled array", (name, layer_type))]
+            )
+            self._recorder.record(
+                function_name="change_array_pixelsize",
+                func_params=func_params,
+                main_input_param_name="array",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+            )
 
     def _run_compute_mask(self):
 
@@ -1098,9 +1034,11 @@ class TapenadeProcessingWidget(QWidget):
         mask = compute_mask(layer.data, **func_params)
         print(f"Mask computation took {time.time() - start_time} seconds")
 
+        name = f"{layer.name}_{self._adjective_dict['compute_mask']}"
+
         self._viewer.add_image(
             mask,
-            name=f"{layer.name} mask",
+            name=name,
             blending="additive",
             opacity=0.7,
         )
@@ -1110,30 +1048,26 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         if self._is_recording_parameters:
-            layers_names_in = {"image": layer.name}
-            layers_names_out = {"mask": f"{layer.name} mask"}
+            input_params_to_layer_names_and_types_dict = {
+                "image": (layer.name, "Image"),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("mask", (name, "Image"))]
+            )
 
             self._recorder.record(
                 function_name="compute_mask",
-                layers_names_in=layers_names_in,
-                layers_names_out=layers_names_out,
                 func_params=func_params,
-                overwrite=self._overwrite_checkbox.value,
+                main_input_param_name="image",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
-        if self._systematic_crop_checkbox.value:
-            old_overwrite = self._overwrite_checkbox.value
-            self._overwrite_checkbox.value = True
-            self._run_crop_array_using_mask()
-            self._overwrite_checkbox.value = old_overwrite
 
     def _run_local_equalization(self):
 
         layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ["Image"]
         )
-
-        layers_names_in = {"image": layer.name}
 
         mask_available = self._mask_layer_combo.value is not None
 
@@ -1145,11 +1079,8 @@ class TapenadeProcessingWidget(QWidget):
             assert (
                 mask_layer_data.shape == layer.data.shape
             ), "Mask and data must have the same shape"
-
-            layers_names_in["mask"] = mask_layer.name
         else:
             mask_layer_data = None
-            layers_names_in["mask"] = None
 
         perc_low, perc_high = self._local_norm_percentiles_slider.value
 
@@ -1169,42 +1100,43 @@ class TapenadeProcessingWidget(QWidget):
         if mask_layer_data is not None:
             equalized_array = np.where(mask_layer_data, equalized_array, 0.0)
 
+        name = (
+            f"{layer.name}_{self._adjective_dict['local_image_equalization']}"
+        )
+
         if self._overwrite_checkbox.value:
             layer.data = equalized_array
             layer.contrast_limits = (0, 1)
-
-            layers_names_out = {"image": layer.name}
+            layer.name = name
         else:
-            name = f"{layer.name} equalized"
-
             self._viewer.add_image(
                 equalized_array,
                 name=name,
-                colormap=layer.colormap,
-                blending=layer.blending,
-                opacity=layer.opacity,
+                **self._transmissive_image_layer_properties(layer),
             )
 
             self._image_layer_combo.native.setCurrentIndex(
                 self._image_layer_combo.native.count() - 1
             )
 
-            layers_names_out = {"image": name}
-
         if self._is_recording_parameters:
+            input_params_to_layer_names_and_types_dict = {
+                "image": (layer.name, "Image"),
+                "mask": (
+                    mask_layer.name if mask_layer is not None else None,
+                    "Mask",
+                ),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("equalized image", (name, "Image"))]
+            )
             self._recorder.record(
                 function_name="local_image_equalization",
-                layers_names_in=layers_names_in,
-                layers_names_out=layers_names_out,
                 func_params=func_params,
-                overwrite=self._overwrite_checkbox.value,
+                main_input_param_name="image",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
-        if mask_available and self._systematic_crop_checkbox.value:
-            old_overwrite = self._overwrite_checkbox.value
-            self._overwrite_checkbox.value = True
-            self._run_crop_array_using_mask()
-            self._overwrite_checkbox.value = old_overwrite
 
     def _run_normalize_intensity(self):
 
@@ -1216,11 +1148,6 @@ class TapenadeProcessingWidget(QWidget):
             self._ref_image_layer_combo.value, ["Image"]
         )
 
-        layers_names_in = {
-            "image": layer.name,
-            "ref_image": ref_layer.name,
-        }
-
         mask_available = self._mask_layer_combo.value is not None
 
         if mask_available:
@@ -1231,11 +1158,8 @@ class TapenadeProcessingWidget(QWidget):
             assert (
                 mask_layer_data.shape == layer.data.shape
             ), "Mask and data must have the same shape"
-
-            layers_names_in["mask"] = mask_layer.name
         else:
             mask_layer_data = None
-            layers_names_in["mask"] = None
 
         labels_available = self._labels_layer_combo.value is not None
 
@@ -1247,11 +1171,8 @@ class TapenadeProcessingWidget(QWidget):
             assert (
                 labels_layer_data.shape == layer.data.shape
             ), "Labels and data must have the same shape"
-
-            layers_names_in["labels"] = labels_layer.name
         else:
             labels_layer_data = None
-            layers_names_in["labels"] = None
 
         sigma = self._int_norm_sigma_slider.value
         if sigma == 0:
@@ -1265,7 +1186,7 @@ class TapenadeProcessingWidget(QWidget):
         }
 
         start_time = time.time()
-        normalized_array, normalized_ref_array = normalize_intensity(
+        normalized_image = normalize_intensity(
             image=layer.data,
             ref_image=ref_layer.data,
             mask=mask_layer_data,
@@ -1277,62 +1198,48 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         if mask_layer_data is not None:
-            normalized_array = np.where(mask_layer_data, normalized_array, 0.0)
-            normalized_ref_array = np.where(
-                mask_layer_data, normalized_ref_array, 0.0
-            )
+            normalized_image = np.where(mask_layer_data, normalized_image, 0.0)
+
+        old_name = layer.name
+        name = f"{old_name}_{self._adjective_dict['normalize_intensity']}"
 
         if self._overwrite_checkbox.value:
-            layer.data = normalized_array
-            ref_layer.data = normalized_ref_array
-
-            layers_names_out = {
-                "image": layer.name,
-                "ref_image": ref_layer.name,
-            }
+            layer.data = normalized_image
+            layer.name = name
         else:
-            name = f"{layer.name} normalized"
-            ref_name = f"{ref_layer.name} normalized"
-
             self._viewer.add_image(
-                normalized_array,
+                normalized_image,
                 name=name,
-                colormap=layer.colormap,
-                blending=layer.blending,
-                opacity=layer.opacity,
-            )
-
-            self._viewer.add_image(
-                normalized_ref_array,
-                name=ref_name,
-                colormap=ref_layer.colormap,
-                blending=ref_layer.blending,
-                opacity=ref_layer.opacity,
+                **self._transmissive_image_layer_properties(layer),
             )
 
             self._image_layer_combo.native.setCurrentIndex(
                 self._image_layer_combo.native.count() - 1
             )
 
-            layers_names_out = {
-                "image": name,
-                "ref_image": ref_name,
-            }
-
         if self._is_recording_parameters:
+            input_params_to_layer_names_and_types_dict = {
+                "image": (old_name, "Image"),
+                "ref_image": (ref_layer.name, "Image"),
+                "mask": (
+                    mask_layer.name if mask_layer is not None else None,
+                    "Mask",
+                ),
+                "labels": (
+                    labels_layer.name if labels_layer is not None else None,
+                    "Labels",
+                ),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("normalized image", (name, "Image"))]
+            )
             self._recorder.record(
                 function_name="normalize_intensity",
-                layers_names_in=layers_names_in,
-                layers_names_out=layers_names_out,
                 func_params=func_params,
-                overwrite=self._overwrite_checkbox.value,
+                main_input_param_name="image",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
-        if mask_available and self._systematic_crop_checkbox.value:
-            old_overwrite = self._overwrite_checkbox.value
-            self._overwrite_checkbox.value = True
-            self._run_crop_array_using_mask()
-            self._overwrite_checkbox.value = old_overwrite
 
     def _run_align_major_axis(self):
 
@@ -1340,28 +1247,12 @@ class TapenadeProcessingWidget(QWidget):
             self._mask_layer_combo.value, ["Image"]
         )
 
-        layers_properties = {
-            "mask": (mask_layer, "Image"),
-        }
+        array_layer, layer_type = self._assert_basic_layer_properties(
+            self._array_layer_combo.value, ["Image", "Labels"]
+        )
 
-        for layer_type in ["image", "labels"]:
-            layer = getattr(self, f"_{layer_type}_layer_combo").value
-            if layer is not None:
-                layer, napari_type = self._assert_basic_layer_properties(
-                    layer, ["Image", "Labels"]
-                )
-                layers_properties[layer_type] = (layer, napari_type)
-
-                assert (
-                    layer.data.shape == mask_layer.data.shape
-                ), f"{layer_type} and mask must have the same shape"
-            else:
-                layers_properties[layer_type] = (None, None)
-
-        arrays = {
-            layer_type: (value[0].data if value[0] is not None else None)
-            for layer_type, value in layers_properties.items()
-        }
+        if array_layer.data.dtype == bool:
+            layer_type = "Mask"
 
         func_params = {
             "target_axis": self._align_major_axis_target_axis_combo.value,
@@ -1370,82 +1261,50 @@ class TapenadeProcessingWidget(QWidget):
         }
 
         start_time = time.time()
-        result_arrays = align_array_major_axis(**arrays, **func_params)
+        array = align_array_major_axis(
+            mask=mask_layer.data, array=array_layer.data, **func_params
+        )
         print(f"Alignment took {time.time() - start_time} seconds")
 
-        if isinstance(result_arrays, tuple):
-            multiple_results = True
-            result_counter = 0
+        old_name = array_layer.name
+        name = f"{old_name}_{self._adjective_dict['align_array_major_axis']}"
+
+        if self._overwrite_checkbox.value:
+            array_layer.data = array
+            array_layer.name = name
         else:
-            multiple_results = False
-
-        layers_names_out = OrderedDict()
-
-        for layer_type, (layer, napari_type) in layers_properties.items():
-            if layer is not None:
-
-                if multiple_results:
-                    array = result_arrays[result_counter]
-                    result_counter += 1
-                else:
-                    array = result_arrays
-
-                if self._overwrite_checkbox.value:
-                    layer.data = array
-                    layers_names_out[layer_type] = layer.name
-                else:
-
-                    name = f"{layer.name} aligned"
-                    layers_names_out[layer_type] = name
-
-                    if napari_type == "Image":
-                        self._viewer.add_image(
-                            array,
-                            name=name,
-                            **self._transmissive_image_layer_properties(layer),
-                        )
-                        if array.dtype == bool:
-                            self._mask_layer_combo.native.setCurrentIndex(
-                                self._mask_layer_combo.native.count() - 1
-                            )
-                        else:
-                            self._image_layer_combo.native.setCurrentIndex(
-                                self._image_layer_combo.native.count() - 1
-                            )
-                    else:
-                        self._viewer.add_labels(
-                            array,
-                            name=name,
-                            **self._transmissive_labels_layer_properties(
-                                layer
-                            ),
-                        )
-                        self._labels_layer_combo.native.setCurrentIndex(
-                            self._labels_layer_combo.native.count() - 1
-                        )
-
+            if layer_type in ("Image", "Mask"):
+                self._viewer.add_image(
+                    array,
+                    name=name,
+                    **self._transmissive_image_layer_properties(array_layer),
+                )
             else:
-                layers_names_out[layer_type] = None
+                self._viewer.add_labels(
+                    array,
+                    name=name,
+                    **self._transmissive_labels_layer_properties(array_layer),
+                )
+            self._array_layer_combo.native.setCurrentIndex(
+                self._array_layer_combo.native.count() - 1
+            )
 
         if self._is_recording_parameters:
-            layers_names_in = {
-                layer_type: (v[0].name if v[0] is not None else None)
-                for layer_type, v in layers_properties.items()
+            input_params_to_layer_names_and_types_dict = {
+                "mask": (mask_layer.name, "Image"),
+                "array": (old_name, layer_type),
             }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("aligned array", (name, layer_type))]
+            )
 
             self._recorder.record(
                 function_name="align_array_major_axis",
-                layers_names_in=layers_names_in,
-                layers_names_out=layers_names_out,
                 func_params=func_params,
-                overwrite=self._overwrite_checkbox.value,
+                main_input_param_name="array",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
-        if self._systematic_crop_checkbox.value:
-            old_overwrite = self._overwrite_checkbox.value
-            self._overwrite_checkbox.value = True
-            self._run_crop_array_using_mask()
-            self._overwrite_checkbox.value = old_overwrite
 
     def _update_target_axis_choices(self, event):
 
@@ -1476,29 +1335,23 @@ class TapenadeProcessingWidget(QWidget):
             mask_layer.data.shape == labels_layer.data.shape
         ), "Mask and labels must have the same shape"
 
-        layers_names_in = {
-            "mask": mask_layer.name,
-            "labels": labels_layer.name,
-        }
-
         func_params = {
             "n_jobs": self._n_jobs_slider.value,
         }
 
         start_time = time.time()
         labels_cropped = remove_labels_outside_of_mask(
-            labels_layer.data, mask_layer.data, **func_params
+            labels=labels_layer.data, mask=mask_layer.data, **func_params
         )
         print(f"Removing labels took {time.time() - start_time} seconds")
 
-        layers_names_out = OrderedDict()
+        old_name = labels_layer.name
+        name = f"{old_name}_curated"
 
         if self._overwrite_checkbox.value:
             labels_layer.data = labels_cropped
-            layers_names_out["labels"] = labels_layer.name
+            labels_layer.name = name
         else:
-            name = f"{labels_layer.name} cropped"
-
             self._viewer.add_labels(
                 labels_cropped,
                 name=name,
@@ -1508,22 +1361,21 @@ class TapenadeProcessingWidget(QWidget):
                 self._labels_layer_combo.native.count() - 1
             )
 
-            layers_names_out["labels"] = name
-
         if self._is_recording_parameters:
+            input_params_to_layer_names_and_types_dict = {
+                "mask": (mask_layer.name, "Image"),
+                "labels": (old_name, "Labels"),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("curated labels", (name, "Labels"))]
+            )
             self._recorder.record(
                 function_name="remove_labels_outside_of_mask",
-                layers_names_in=layers_names_in,
-                layers_names_out=layers_names_out,
                 func_params=func_params,
-                overwrite=self._overwrite_checkbox.value,
+                main_input_param_name="labels",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
-        if self._systematic_crop_checkbox.value:
-            old_overwrite = self._overwrite_checkbox.value
-            self._overwrite_checkbox.value = True
-            self._run_crop_array_using_mask()
-            self._overwrite_checkbox.value = old_overwrite
 
     def _run_crop_array_using_mask(self):
 
@@ -1531,28 +1383,12 @@ class TapenadeProcessingWidget(QWidget):
             self._mask_layer_combo.value, ["Image"]
         )
 
-        layers_properties = {
-            "mask": (mask_layer, "Image"),
-        }
+        array_layer, layer_type = self._assert_basic_layer_properties(
+            self._array_layer_combo.value, ["Image", "Labels"]
+        )
 
-        for layer_type in ["image", "labels"]:
-            layer = getattr(self, f"_{layer_type}_layer_combo").value
-            if layer is not None:
-                layer, napari_type = self._assert_basic_layer_properties(
-                    layer, ["Image", "Labels"]
-                )
-                layers_properties[layer_type] = (layer, napari_type)
-
-                assert (
-                    layer.data.shape == mask_layer.data.shape
-                ), f"{layer_type} and mask must have the same shape"
-            else:
-                layers_properties[layer_type] = (None, None)
-
-        arrays = {
-            layer_type: (value[0].data if value[0] is not None else None)
-            for layer_type, value in layers_properties.items()
-        }
+        if array_layer.data.dtype == bool:
+            layer_type = "Mask"
 
         func_params = {
             "margin": int(self._crop_array_using_mask_margin_checkbox.value),
@@ -1560,75 +1396,114 @@ class TapenadeProcessingWidget(QWidget):
         }
 
         start_time = time.time()
-        result_arrays = crop_array_using_mask(**arrays, **func_params)
+        array = crop_array_using_mask(
+            mask=mask_layer.data, array=array_layer.data, **func_params
+        )
         print(f"Cropping took {time.time() - start_time} seconds")
 
-        if isinstance(result_arrays, tuple):
-            multiple_results = True
-            result_counter = 0
+        old_name = array_layer.name
+        name = f"{old_name}_{self._adjective_dict['crop_array_using_mask']}"
+
+        if self._overwrite_checkbox.value:
+            array_layer.data = array
+            array_layer.name = name
         else:
-            multiple_results = False
-
-        layers_names_out = OrderedDict()
-
-        for layer_type, (layer, napari_type) in layers_properties.items():
-            if layer is not None:
-
-                if multiple_results:
-                    array = result_arrays[result_counter]
-                    result_counter += 1
-                else:
-                    array = result_arrays
-
-                if self._overwrite_checkbox.value:
-                    layer.data = array
-                    layers_names_out[layer_type] = layer.name
-                else:
-
-                    name = f"{layer.name} cropped"
-                    layers_names_out[layer_type] = name
-
-                    if napari_type == "Image":
-                        self._viewer.add_image(
-                            array,
-                            name=name,
-                            **self._transmissive_image_layer_properties(layer),
-                        )
-                        if array.dtype == bool:
-                            self._mask_layer_combo.native.setCurrentIndex(
-                                self._mask_layer_combo.native.count() - 1
-                            )
-                        else:
-                            self._image_layer_combo.native.setCurrentIndex(
-                                self._image_layer_combo.native.count() - 1
-                            )
-                    else:
-                        self._viewer.add_labels(
-                            array,
-                            name=name,
-                            **self._transmissive_labels_layer_properties(
-                                layer
-                            ),
-                        )
-                        self._labels_layer_combo.native.setCurrentIndex(
-                            self._labels_layer_combo.native.count() - 1
-                        )
-
+            if layer_type in ("Image", "Mask"):
+                self._viewer.add_image(
+                    array,
+                    name=name,
+                    **self._transmissive_image_layer_properties(array_layer),
+                )
             else:
-                layers_names_out[layer_type] = None
+                self._viewer.add_labels(
+                    array,
+                    name=name,
+                    **self._transmissive_labels_layer_properties(array_layer),
+                )
+            self._array_layer_combo.native.setCurrentIndex(
+                self._array_layer_combo.native.count() - 1
+            )
 
         if self._is_recording_parameters:
-            layers_names_in = {
-                layer_type: (v[0].name if v[0] is not None else None)
-                for layer_type, v in layers_properties.items()
+            input_params_to_layer_names_and_types_dict = {
+                "mask": (mask_layer.name, "Image"),
+                "array": (old_name, layer_type),
             }
+
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("cropped array", (name, layer_type))]
+            )
 
             self._recorder.record(
                 function_name="crop_array_using_mask",
-                layers_names_in=layers_names_in,
-                layers_names_out=layers_names_out,
                 func_params=func_params,
                 overwrite=self._overwrite_checkbox.value,
+                main_input_param_name="array",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+            )
+
+    def _reset_macro_widgets(self):
+        self._macro_widgets = {}
+        self._macro_tab_container.clear()
+
+        self._macro_tab_container.extend(
+            [
+                Label(value="<u>Recording macro</u>"),
+                Label(value="Path to save the macro json file:"),
+                self._record_parameters_path,
+                self._record_parameters_button,
+                EmptyWidget(),
+                Label(value="<u>Running macro</u>"),
+                Label(value="Paths to macro parameters:"),
+                self._run_macro_parameters_path
+            ]
+        )
+
+    def _update_macro_widgets(self):
+        parameters_path = self._run_macro_parameters_path.value
+
+        self._reset_macro_widgets()
+        if parameters_path != "." and os.path.isfile(parameters_path):
+            with open(parameters_path) as file:
+                recorded_functions_calls_list = json.loads(file.read())
+
+            self._processing_graph = ProcessingGraph(
+                recorded_functions_calls_list=recorded_functions_calls_list
+            )
+
+            root_layer_ids_to_types_dict = (
+                self._processing_graph.roots_layers_ids
+            )
+
+            for input_id, (layer_id, input_types) in enumerate(
+                root_layer_ids_to_types_dict.items(), start=1
+            ):
+
+                input_types = [
+                    elem for elem in input_types if elem != "undefined"
+                ]
+
+                widget = create_widget(
+                    widget_type="FileEdit", options={"mode": "d"}
+                )
+                widget.native.children()[1].setPlaceholderText(
+                    f"Path to folder ({input_types} {input_id})"
+                )
+                self._macro_tab_container.append(
+                    Label(value=f"Path to folder ({input_types} {input_id}):")
+                )
+                self._macro_tab_container.append(widget)
+                self._macro_widgets[layer_id] = widget
+
+            self._macro_tab_container.extend(
+                [
+                    Label(value=f"Path to save outputs folders of tifs:"),
+                    self._run_macro_save_path,
+                    self._run_macro_compress_checkbox,
+                    self._run_macro_save_all_checkbox,
+                    self._run_macro_button,
+                ]
             )
 
     def _run_macro(self):
@@ -1642,112 +1517,90 @@ class TapenadeProcessingWidget(QWidget):
             warnings.warn("Please enter a path to save the outputs")
             return
 
-        with open(parameters_path) as file:
-            parameters_list = json.loads(file.read())
+        compress_params = {}
+        if self._run_macro_compress_checkbox.value:
+            compress_params.update({"compression": ("zlib", 1)})
 
-        mask_path = str(self._run_macro_mask_path.value)
-        image_path = str(self._run_macro_image_path.value)
-        labels_path = str(self._run_macro_labels_path.value)
-        # tracks_path = str(self._run_macro_tracks_path.value)
-
-        if mask_path == "." or not os.path.exists(mask_path):
-            mask_input = None
-        else:  ###! MODIFY THIS
-            mask_input = self._read_folder_of_tifs(mask_path)
-
-        if image_path == "." or not os.path.exists(image_path):
-            image_input = None
-        else:
-            image_input = self._read_folder_of_tifs(image_path)
-
-        if labels_path == "." or not os.path.exists(labels_path):
-            labels_input = None
-        else:
-            labels_input = self._read_folder_of_tifs(labels_path)
-
-        # if tracks_path == '.' or not os.path.exists(tracks_path):
-        #     tracks_input = None
-        # else:
-        #     tracks_input = tifffile.imread(tracks_path)
-
-        data_dict = {
-            "mask": OrderedDict({"mask": mask_input}),
-            "image": OrderedDict({"image": image_input}),
-            "labels": OrderedDict({"labels": labels_input}),
-            # 'tracks':OrderedDict({'tracks':tracks_input}),
+        layer_id_to_folder_path_dict = {
+            layer_id: widget.value
+            for layer_id, widget in self._macro_widgets.items()
         }
 
-        for params in parameters_list:
-            function = self._funcs_dict[params["function"]]
-            func_params = params["func_params"]
+        for layer_id, path in layer_id_to_folder_path_dict.items():
+            if path == "." or not os.path.exists(path):
+                warnings.warn(f"Please enter a path for layer {layer_id}")
+                return
+            files = glob.glob(f"{path}/*.tif")
+            if not files:
+                warnings.warn(f"No tif files found in folder {path}")
+                return
 
-            in_dict = params["in"]
-            out_dict = OrderedDict(params["out"])
+        for node_function in self._processing_graph.nodes_functions.values():
+            function_name = node_function.function_name
+            func_params = node_function.func_params
+            func_params["n_jobs"] = 1
+            function = self._funcs_dict[function_name]
 
-            function_inputs = {
-                k: data_dict[k][v] for k, v in in_dict.items() if v is not None
-            }
-
-            results = function(**function_inputs, **func_params)
-
-            out_dict = OrderedDict(
-                {k: v for k, v in out_dict.items() if v is not None}
+            input_params_to_layer_ids_dict = (
+                node_function.input_params_to_layer_ids_dict
+            )
+            # this should be an OrderedDict
+            output_params_to_layer_ids_dict = (
+                node_function.output_params_to_layer_ids_dict
             )
 
-            if len(out_dict) == 1:
-                results_dict = {next(iter(out_dict)): results}
+            main_param = node_function.main_input_param_name
+            main_layer_folder_name = os.path.basename(
+                layer_id_to_folder_path_dict[
+                    input_params_to_layer_ids_dict[main_param]
+                ]
+            )
+            # create a folder for the outputs of this function
+            folder_name = f"{main_layer_folder_name}_{self._adjective_dict[function_name]}"
+            if len(output_params_to_layer_ids_dict) == 1:
+                folder_path = f"{save_path}/{folder_name}"
+                self._create_folder_if_needed(folder_path)
+                layer_id = next(iter(output_params_to_layer_ids_dict.values()))
+                layer_id_to_folder_path_dict.update({layer_id: folder_path})
             else:
-                # enumerate returns the keys
-                results_dict = {
-                    layer_type: results[i]
-                    for i, layer_type in enumerate(out_dict)
-                }
-
-            for layer_type, name in out_dict.items():
-                data_dict[layer_type][name] = results_dict[layer_type]
-
-            if self._run_macro_save_all_checkbox.value:
-                for layer_type, data in results_dict.items():
-                    if data is not None:
-                        if (
-                            self._run_macro_compress_checkbox.value
-                            and data.dtype != bool
-                        ):
-                            compress_params = {"compress": ("zlib", 1)}
-                        else:
-                            compress_params = {}
-
-                        self._create_folder_if_needed(
-                            f"{save_path}/{out_dict[layer_type]}"
-                        )
-
-                        self._save_array_to_tif_folder(
-                            f"{save_path}/{out_dict[layer_type]}",
-                            data,
-                            compress_params,
-                        )
-
-        if not self._run_macro_save_all_checkbox.value:
-            for _, data_dict_of_that_type in data_dict.items():
-                # this is where the OrderedDict is useful: it allows to get
-                # the last element of the dict, which is the last output of the
-                # chain of functions
-                last_name, last_data = next(
-                    reversed(data_dict_of_that_type.items())
-                )
-                if last_data is not None:
-                    if (
-                        self._run_macro_compress_checkbox.value
-                        and data.dtype != bool
-                    ):
-                        compress_params = {"compress": ("zlib", 1)}
-                    else:
-                        compress_params = {}
-                    tifffile.imwrite(
-                        f"{save_path}/{last_name}.tif",
-                        last_data,
-                        **compress_params,
+                # for i in range(1, len(output_params_to_layer_ids_dict) + 1):
+                for i, layer_id in enumerate(
+                    output_params_to_layer_ids_dict.values(), start=1
+                ):
+                    subfolder_name = f"{folder_name}_{i}"
+                    folder_path = f"{save_path}/{subfolder_name}"
+                    self._create_folder_if_needed(folder_path)
+                    layer_id_to_folder_path_dict.update(
+                        {layer_id: folder_path}
                     )
+
+            input_params_to_list_of_tifpaths_dict = {
+                param: glob.glob(
+                    f"{layer_id_to_folder_path_dict[layer_id]}/*.tif"
+                )
+                for param, layer_id in input_params_to_layer_ids_dict.items()
+            }
+
+            n_tifs = len(input_params_to_list_of_tifpaths_dict[main_param])
+
+            parallel_function = build_parallel_function(
+                function,
+                input_params_to_list_of_tifpaths_dict,
+                output_params_to_layer_ids_dict,
+                layer_id_to_folder_path_dict,
+                func_params,
+                compress_params,
+            )
+
+            n_jobs = self._n_jobs_slider.value
+
+            process_map(
+                parallel_function,
+                range(n_tifs),
+                chunksize=1,
+                max_workers=n_jobs,
+                desc=f"Processing {function_name}",
+            )
 
     def _create_folder_if_needed(self, folder_path):
         if not os.path.exists(folder_path):
@@ -1773,3 +1626,74 @@ class TapenadeProcessingWidget(QWidget):
             [tifffile.imread(tif_file) for tif_file in tif_files],
             dtype=sample_dtype,
         )
+
+
+def parallel_function(
+    i,
+    function,
+    input_params_to_list_of_tifpaths_dict,
+    output_params_to_layer_ids_dict,
+    layer_id_to_folder_path_dict,
+    func_params,
+    compress_params,
+):
+    input_param_to_tif_dict = {
+        param: tifffile.imread(tif_paths[i])
+        for param, tif_paths in input_params_to_list_of_tifpaths_dict.items()
+    }
+
+    function_result = function(**input_param_to_tif_dict, **func_params)
+
+    if len(output_params_to_layer_ids_dict) == 1:
+        output_param, output_layer_id = next(
+            iter(output_params_to_layer_ids_dict.items())
+        )
+        output_folder_path = layer_id_to_folder_path_dict[output_layer_id]
+
+        tifffile.imwrite(
+            f"{output_folder_path}/{output_param}_{i}.tif",
+            function_result,
+            **compress_params,
+        )
+    else:
+        for (output_param, output_layer_id), result in zip(
+            output_params_to_layer_ids_dict.items(), function_result
+        ):
+            output_folder_path = layer_id_to_folder_path_dict[output_layer_id]
+
+            tifffile.imwrite(
+                f"{output_folder_path}/{output_param}_{i}.tif",
+                result,
+                **compress_params,
+            )
+
+
+def build_parallel_function(
+    function,
+    input_params_to_list_of_tifpaths_dict,
+    output_params_to_layer_ids_dict,
+    layer_id_to_folder_path_dict,
+    func_params,
+    compress_params,
+):
+
+    parallel_func = partial(
+        parallel_function,
+        function=function,
+        input_params_to_list_of_tifpaths_dict=input_params_to_list_of_tifpaths_dict,
+        output_params_to_layer_ids_dict=output_params_to_layer_ids_dict,
+        layer_id_to_folder_path_dict=layer_id_to_folder_path_dict,
+        func_params=func_params,
+        compress_params=compress_params,
+    )
+
+    return parallel_func
+
+
+if __name__ == "__main__":
+    import napari
+
+    viewer = napari.Viewer()
+    widget = TapenadeProcessingWidget(viewer)
+    viewer.window.add_dock_widget(widget, area="right")
+    napari.run()
