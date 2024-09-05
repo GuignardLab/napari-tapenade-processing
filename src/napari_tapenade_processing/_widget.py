@@ -8,9 +8,19 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from qtpy import QtWidgets, QtCore
+
+from NodeGraphQt import (
+    NodeGraph,
+)
+from NodeGraphQt import BaseNode
+from NodeGraphQt.constants import NodePropWidgetEnum
+from NodeGraphQt.widgets.node_widgets import NodeBaseWidget
+
 import napari.utils
 import numpy as np
 import tifffile
+from tqdm import tqdm
 from magicgui.widgets import (
     ComboBox,
     Container,
@@ -19,6 +29,7 @@ from magicgui.widgets import (
     create_widget,
 )
 from napari.layers import Image
+from natsort import natsorted
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QPixmap
 from qtpy.QtWidgets import (
@@ -31,9 +42,11 @@ from qtpy.QtWidgets import (
 )
 from tapenade.preprocessing import (
     align_array_major_axis,
+    align_array_major_axis_from_files,
     change_array_pixelsize,
     compute_mask,
     crop_array_using_mask,
+    crop_array_using_mask_from_files,
     local_image_equalization,
     normalize_intensity,
 )
@@ -68,22 +81,20 @@ if TYPE_CHECKING:
 
 """
 
+class MyBasicNode(BaseNode):
+    __identifier__ = 'nodes.basic'
+
+    NODE_NAME = 'MyBasicNode'
+
+    def __init__(self):
+        super(MyBasicNode, self).__init__()
+
 
 class TapenadeProcessingWidget(QWidget):
     def __init__(self, viewer: "napari.viewer.Viewer"):
         super().__init__()
 
         self._viewer = viewer
-
-        self._funcs_dict = {
-            "change_array_pixelsize": change_array_pixelsize,
-            "compute_mask": compute_mask,
-            "local_image_equalization": local_image_equalization,
-            "align_array_major_axis": align_array_major_axis,
-            "remove_labels_outside_of_mask": remove_labels_outside_of_mask,
-            "crop_array_using_mask": crop_array_using_mask,
-            "normalize_intensity": normalize_intensity,
-        }
 
         self._array_layer_combo = create_widget(
             label="Array",
@@ -140,8 +151,12 @@ class TapenadeProcessingWidget(QWidget):
             # Making array isotropic
             self._rescale_interp_order_combo = create_widget(
                 label="Interp order",
-                options={"choices": [0, 1, 3], "value": 1},
+                options={
+                    "choices": ["Nearest", "Linear", "Cubic"],
+                    "value": "Linear"
+                },
             )
+            self._rescale_interp_order_combo.bind(self._bind_combo_interpolation_order)
             tooltip_rescale = "Interpolation order.\n0: Nearest, 1: Linear, 3: Cubic\nBigger means slower"
             self._rescale_interp_order_combo.native.setToolTip(tooltip_rescale)
 
@@ -329,6 +344,23 @@ class TapenadeProcessingWidget(QWidget):
             )
 
             # Aligning major axis
+            self._align_major_axis_order_combo = create_widget(
+                label="Interp order",
+                options={
+                    "choices": ["Nearest", "Linear", "Cubic"],
+                    "value": "Linear",
+                },
+            )
+
+            self._align_major_axis_order_combo.bind(
+                self._bind_combo_interpolation_order
+            )
+
+            self._align_major_axis_order_combo.native.setToolTip(
+                "Interpolation order.\n0: Nearest, 1: Linear, 3: Cubic\nBigger means slower"
+            )
+
+
             self._align_major_axis_rotation_plane_combo = create_widget(
                 label="Rotation plane",
                 options={"choices": ["XY", "XZ", "YZ"], "value": "XY"},
@@ -349,6 +381,7 @@ class TapenadeProcessingWidget(QWidget):
 
             self._align_major_axis_container = Container(
                 widgets=[
+                    self._align_major_axis_order_combo,
                     self._align_major_axis_rotation_plane_combo,
                     self._align_major_axis_target_axis_combo,
                 ],
@@ -386,9 +419,19 @@ class TapenadeProcessingWidget(QWidget):
                 labels=False,
             )
 
-            self._dict_widgets = OrderedDict(
+            self._func_name_to_func = {
+                "change_array_pixelsize": change_array_pixelsize,
+                "compute_mask": compute_mask,
+                "local_image_equalization": local_image_equalization,
+                "align_array_major_axis": align_array_major_axis,
+                "remove_labels_outside_of_mask": remove_labels_outside_of_mask,
+                "crop_array_using_mask": crop_array_using_mask,
+                "normalize_intensity": normalize_intensity,
+            }
+
+            self._funcs_combobox_text_to_containers = OrderedDict(
                 [
-                    ("Rescale layers", self._rescale_container),
+                    ("Change layer voxelsize", self._rescale_container),
                     ("Spectral filtering", self._spectral_filtering_container),
                     ("Compute mask from image", self._compute_mask_container),
                     (
@@ -415,9 +458,9 @@ class TapenadeProcessingWidget(QWidget):
                 ]
             )
 
-            self._dict_funcs = OrderedDict(
+            self._funcs_combobox_text_to_func = OrderedDict(
                 [
-                    ("Rescale layers", self._run_rescale),
+                    ("Change layer voxelsize", self._run_rescale),
                     ("Spectral filtering", None),
                     ("Compute mask from image", self._run_compute_mask),
                     (
@@ -444,8 +487,8 @@ class TapenadeProcessingWidget(QWidget):
                 ]
             )
 
-            self._dict_widgets_layers_visibilities = {
-                "Rescale layers": ["array"],
+            self._funcs_combobox_text_to_visible_layers = {
+                "Change layer voxelsize": ["array"],
                 "Spectral filtering": [],
                 "Compute mask from image": ["image"],
                 "Local image equalization": ["image", "mask"],
@@ -464,6 +507,18 @@ class TapenadeProcessingWidget(QWidget):
                 "Masked gaussian smoothing": [],
             }
 
+            self._adjective_dict = {
+                "change_array_pixelsize": "rescaled",
+                "compute_mask": "mask",
+                "local_image_equalization": "equalized",
+                "align_array_major_axis": "aligned",
+                "remove_labels_outside_of_mask": "curated",
+                "crop_array_using_mask": "cropped",
+                "normalize_intensity": "normalized",
+                "masked_gaussian_smoothing": "smoothed",
+                "spectral_filtering": "filtered",
+            }
+
         self._run_button = create_widget(
             widget_type="PushButton", label="Run function"
         )
@@ -479,7 +534,7 @@ class TapenadeProcessingWidget(QWidget):
         main_stack.native = main_stack
         main_stack.name = ""
 
-        for name, w in self._dict_widgets.items():
+        for name, w in self._funcs_combobox_text_to_containers.items():
             # manage layout stretch and add to main combobox
             if hasattr(w, "native"):
                 w.native.layout().addStretch()
@@ -555,7 +610,7 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         self._record_parameters_button = create_widget(
-            widget_type="PushButton", label="Record macro"
+            widget_type="PushButton", label="Start recording macro"
         )
 
         self._run_macro_parameters_path = create_widget(
@@ -595,9 +650,10 @@ class TapenadeProcessingWidget(QWidget):
         self._run_macro_button.clicked.connect(self._run_macro)
 
         self._test_button = create_widget(
-            widget_type="PushButton", label="Test"
+            widget_type="PushButton", label="Display macro graph"
         )
-        self._test_button.clicked.connect(self._test)
+        self._test_button.clicked.connect(self._display_macro_graph)
+        self._test_button.native.setEnabled(False)
 
         self._macro_tab_container = Container(
             widgets=[
@@ -605,12 +661,12 @@ class TapenadeProcessingWidget(QWidget):
                 Label(value="Path to save the macro json file:"),
                 self._record_parameters_path,
                 self._record_parameters_button,
+                self._test_button,
                 EmptyWidget(),
                 Label(value="<u>Running macro</u>"),
                 Label(value="Paths to macro parameters:"),
                 self._run_macro_parameters_path,
                 # EmptyWidget(),
-                # self._test_button,
             ],
             layout="vertical",
             labels=False,
@@ -619,19 +675,6 @@ class TapenadeProcessingWidget(QWidget):
         self._run_macro_parameters_path.changed.connect(
             self._update_macro_widgets
         )
-
-        adjective_dict = {
-            "change_array_pixelsize": "rescaled",
-            "compute_mask": "mask",
-            "local_image_equalization": "equalized",
-            "align_array_major_axis": "aligned",
-            "remove_labels_outside_of_mask": "curated",
-            "crop_array_using_mask": "cropped",
-            "normalize_intensity": "normalized",
-            "masked_gaussian_smoothing": "smoothed",
-            "spectral_filtering": "filtered",
-        }
-        self._adjective_dict = adjective_dict
 
         self._recorder = MacroRecorder()
         self._is_recording_parameters = False
@@ -642,11 +685,6 @@ class TapenadeProcessingWidget(QWidget):
 
         self._processing_graph = None
         ###
-
-        # options_text = EmptyWidget(label='<u>Options:</u>')
-        # self._record_parameters_text = EmptyWidget(label='<u>Macro recording settings:</u>')
-        # self._choose_layers_text = EmptyWidget(label='<u>Choose layers to process:</u>')
-        # choose_function_text = EmptyWidget(label='<u>Choose processing function:</u>')
 
         logo_path = str(Path(__file__).parent / "logo" / "tapenade3.png")
 
@@ -663,7 +701,7 @@ class TapenadeProcessingWidget(QWidget):
         label.name = ""
 
         link_website = "morphotiss.org/"
-        link_DOI = "XXX"
+        link_DOI = "https://doi.org/10.1101/2024.08.13.607832 "
 
         texts_container = Container(
             widgets=[
@@ -695,9 +733,8 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         self._overwrite_checkbox.native.setToolTip(
-            "If checked, the new layers will overwrite the previous ones with the same name.\n"
-            "This can be useful to save memory.\n"
-            "If not, a suffix will be added to the new layers names."
+            "If checked, the new layers will overwrite the previous ones.\n"
+            "This can be useful to save memory."
         )
         # self._overwrite_checkbox.native.setEnabled(False)
 
@@ -717,7 +754,7 @@ class TapenadeProcessingWidget(QWidget):
         self._n_jobs_slider = create_widget(
             widget_type="IntSlider",
             label="# parallel jobs",
-            options={"min": 1, "max": os.cpu_count(), "value": os.cpu_count()},
+            options={"min": 1, "max": os.cpu_count(), "value": 1},
         )
 
         self._advanced_parameters_tab_container = Container(
@@ -738,11 +775,8 @@ class TapenadeProcessingWidget(QWidget):
         tabs.addTab(self._function_tab_container.native, "Functions")
         tabs.addTab(self._macro_tab_container.native, "Macro recording")
         tabs.addTab(
-            self._advanced_parameters_tab_container.native, "Advanced params"
+            self._advanced_parameters_tab_container.native, "Preferences"
         )
-        # tabs.addTab(self._advanced_parameters_tab_container.native, 'Advanced params')
-        # tabs.addTab(self._advanced_parameters_tab_container.native, 'Advanced params')
-        # tabs.addTab(self._advanced_parameters_tab_container.native, 'Advanced params')
 
         self.setLayout(QVBoxLayout())
 
@@ -753,12 +787,102 @@ class TapenadeProcessingWidget(QWidget):
         self._disable_irrelevant_layers(0)
         self._update_layer_combos()
 
-    def _test(self):
-        print("test")
-        # self._macro_tab_container.append(
-        #     Label(value="test")
-        # )
-        self._macro_tab_container.clear()
+
+        self._macro_graph=None
+
+    def _display_macro_graph(self):
+        # create graph controller.
+        graph = NodeGraph()
+        graph_widget = graph.widget
+        graph_widget.resize(1100, 800)
+        graph_widget.show()
+        graph.register_node(MyBasicNode)
+
+        self._macro_graph = graph
+
+        graph.set_context_menu_from_file('/home/jvanaret/git_repos/NodeGraphQt/examples/hotkeys/hotkeys.json')
+
+        self._viewer.window.add_dock_widget(graph_widget, area="bottom")
+
+        self._update_graph_widget()
+
+    def _update_graph_widget(self):
+
+        graph = self._macro_graph
+        if graph is None:
+            return
+        graph.clear_session()
+        
+        self._processing_graph = ProcessingGraph(
+            recorded_functions_calls_list=self._recorder._recorded_functions_calls_list
+        )
+
+        graph_nodes_dict = {}
+        nodes_dict = self._processing_graph.nodes_functions 
+
+
+        for node in nodes_dict.values():
+
+            graph_node = graph.create_node('nodes.basic.MyBasicNode')
+            graph_node.set_name(node.function_name)
+
+            for param_name in node.input_params_to_layer_ids_dict.keys():
+                graph_node.add_input(param_name, multi_input=False)
+            for param_name in node.output_params_to_layer_ids_dict.keys():
+                graph_node.add_output(param_name, multi_output=True)
+
+            # show the dict "func_params" of node as text in graph_node
+            graph_node.create_property(
+                '',
+                value='',
+                widget_type=NodePropWidgetEnum.QLABEL.value,
+                tab=None
+            )
+            widget = NodeBaseWidget(graph_node.view, '', '')
+            params = node.func_params
+            params.pop('n_jobs', None)
+            label_string = [f'{k}: {v}\n' for k, v in params.items()]
+            label_string = ''.join(label_string)
+            label = QLabel(label_string)
+            # change label text color to white
+            label.setStyleSheet('color: white')
+            widget.set_custom_widget(label)
+            graph_node.view.add_widget(widget)
+            #: redraw node to address calls outside the "__init__" func.
+            graph_node.view.draw_node()
+
+            graph_nodes_dict[node.unique_id] = graph_node
+
+        for edge in self._processing_graph.edges:
+            source_node_id_to_param_dict = edge.source_node_id_to_param_dict
+            target_node_id_to_param_dict = edge.target_node_id_to_param_dict
+
+            source_node_id, source_param = next(iter(source_node_id_to_param_dict.items()))
+            source_node = graph_nodes_dict[source_node_id]
+
+            target_node_id, target_param = next(iter(target_node_id_to_param_dict.items()))
+            target_node = graph_nodes_dict[target_node_id]
+
+            target_node.set_input(
+                list(nodes_dict[target_node_id].input_params_to_layer_ids_dict.keys()).index(target_param),
+                source_node.output(
+                    list(nodes_dict[source_node_id].output_params_to_layer_ids_dict.keys()).index(source_param)
+                )
+            )
+
+        graph.auto_layout_nodes()
+
+        # fit nodes to the viewer.
+        graph.clear_selection()
+        graph.fit_to_selection()
+
+    def _bind_combo_interpolation_order(self, obj):
+        if obj.native.currentText() == "Nearest":
+            return 0
+        elif obj.native.currentText() == "Linear":
+            return 1
+        elif obj.native.currentText() == "Cubic":
+            return 3
 
     def _bind_layer_combo(self, obj):
         """
@@ -849,15 +973,17 @@ class TapenadeProcessingWidget(QWidget):
             if not self._is_recording_parameters:
                 self._is_recording_parameters = True
 
-                self._record_parameters_button.native.setText("Save macro")
+                self._record_parameters_button.native.setText("Stop recording and save macro")
                 self._record_parameters_path.enabled = False
+                self._test_button.enabled = True
             else:  # if was recording
                 self._is_recording_parameters = False
 
                 self._recorder.dump_recorded_parameters(path)
 
-                self._record_parameters_button.native.setText("Record macro")
+                self._record_parameters_button.native.setText("Start tecording macro")
                 self._record_parameters_path.enabled = True
+                self._test_button.enabled = False
 
     def _bool_layers_filter(self, wdg: ComboBox):
         return [
@@ -875,15 +1001,15 @@ class TapenadeProcessingWidget(QWidget):
 
     def _run_current_function(self):
         function_text = self._main_combobox.currentText()
-        function = self._dict_funcs[function_text]
+        function = self._funcs_combobox_text_to_func[function_text]
         # run function
         function()
 
     def _disable_irrelevant_layers(self, event):
 
-        name, _ = list(self._dict_widgets.items())[event]
+        name, _ = list(self._funcs_combobox_text_to_containers.items())[event]
 
-        list_layers_enabled = self._dict_widgets_layers_visibilities[name]
+        list_layers_enabled = self._funcs_combobox_text_to_visible_layers[name]
 
         for layer_type in ["array", "image", "ref_image", "mask", "labels"]:
             combo = getattr(self, f"_{layer_type}_layer_combo")
@@ -1005,7 +1131,7 @@ class TapenadeProcessingWidget(QWidget):
                 "array": (old_name, layer_type),
             }
             output_params_to_layer_names_and_types_dict = OrderedDict(
-                [("rescaled array", (name, layer_type))]
+                [("rescaled_array", (name, layer_type))]
             )
             self._recorder.record(
                 function_name="change_array_pixelsize",
@@ -1014,6 +1140,9 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget()
 
     def _run_compute_mask(self):
 
@@ -1063,6 +1192,9 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
+            if self._macro_graph is not None:
+                self._update_graph_widget()
+
     def _run_local_equalization(self):
 
         layer, _ = self._assert_basic_layer_properties(
@@ -1109,10 +1241,12 @@ class TapenadeProcessingWidget(QWidget):
             layer.contrast_limits = (0, 1)
             layer.name = name
         else:
+            image_properties = self._transmissive_image_layer_properties(layer)
+            image_properties["contrast_limits"] = (0, 1)
             self._viewer.add_image(
                 equalized_array,
                 name=name,
-                **self._transmissive_image_layer_properties(layer),
+                **image_properties,
             )
 
             self._image_layer_combo.native.setCurrentIndex(
@@ -1128,7 +1262,7 @@ class TapenadeProcessingWidget(QWidget):
                 ),
             }
             output_params_to_layer_names_and_types_dict = OrderedDict(
-                [("equalized image", (name, "Image"))]
+                [("equalized_image", (name, "Image"))]
             )
             self._recorder.record(
                 function_name="local_image_equalization",
@@ -1137,6 +1271,9 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget()
 
     def _run_normalize_intensity(self):
 
@@ -1222,16 +1359,16 @@ class TapenadeProcessingWidget(QWidget):
                 "image": (old_name, "Image"),
                 "ref_image": (ref_layer.name, "Image"),
                 "mask": (
-                    mask_layer.name if mask_layer is not None else None,
+                    mask_layer.name if mask_available else None,
                     "Mask",
                 ),
                 "labels": (
-                    labels_layer.name if labels_layer is not None else None,
+                    labels_layer.name if labels_available else None,
                     "Labels",
                 ),
             }
             output_params_to_layer_names_and_types_dict = OrderedDict(
-                [("normalized image", (name, "Image"))]
+                [("normalized_image", (name, "Image"))]
             )
             self._recorder.record(
                 function_name="normalize_intensity",
@@ -1240,6 +1377,9 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget()
 
     def _run_align_major_axis(self):
 
@@ -1257,6 +1397,7 @@ class TapenadeProcessingWidget(QWidget):
         func_params = {
             "target_axis": self._align_major_axis_target_axis_combo.value,
             "rotation_plane": self._align_major_axis_rotation_plane_combo.value,
+            "order": self._align_major_axis_interp_order_combo.value,
             "n_jobs": self._n_jobs_slider.value,
         }
 
@@ -1295,7 +1436,7 @@ class TapenadeProcessingWidget(QWidget):
                 "array": (old_name, layer_type),
             }
             output_params_to_layer_names_and_types_dict = OrderedDict(
-                [("aligned array", (name, layer_type))]
+                [("aligned_array", (name, layer_type))]
             )
 
             self._recorder.record(
@@ -1305,6 +1446,9 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget()
 
     def _update_target_axis_choices(self, event):
 
@@ -1367,7 +1511,7 @@ class TapenadeProcessingWidget(QWidget):
                 "labels": (old_name, "Labels"),
             }
             output_params_to_layer_names_and_types_dict = OrderedDict(
-                [("curated labels", (name, "Labels"))]
+                [("curated_labels", (name, "Labels"))]
             )
             self._recorder.record(
                 function_name="remove_labels_outside_of_mask",
@@ -1376,6 +1520,9 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget()
 
     def _run_crop_array_using_mask(self):
 
@@ -1431,17 +1578,19 @@ class TapenadeProcessingWidget(QWidget):
             }
 
             output_params_to_layer_names_and_types_dict = OrderedDict(
-                [("cropped array", (name, layer_type))]
+                [("cropped_array", (name, layer_type))]
             )
 
             self._recorder.record(
                 function_name="crop_array_using_mask",
                 func_params=func_params,
-                overwrite=self._overwrite_checkbox.value,
                 main_input_param_name="array",
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget()
 
     def _reset_macro_widgets(self):
         self._macro_widgets = {}
@@ -1506,6 +1655,9 @@ class TapenadeProcessingWidget(QWidget):
                 ]
             )
 
+    def _path_to_files(self, path_to_folder, file_type="tif"):
+        return natsorted(glob.glob(f"{path_to_folder}/*.{file_type}"))
+
     def _run_macro(self):
         parameters_path = self._run_macro_parameters_path.value
         save_path = self._run_macro_save_path.value
@@ -1530,7 +1682,7 @@ class TapenadeProcessingWidget(QWidget):
             if path == "." or not os.path.exists(path):
                 warnings.warn(f"Please enter a path for layer {layer_id}")
                 return
-            files = glob.glob(f"{path}/*.tif")
+            files = self._path_to_files(path)
             if not files:
                 warnings.warn(f"No tif files found in folder {path}")
                 return
@@ -1538,8 +1690,8 @@ class TapenadeProcessingWidget(QWidget):
         for node_function in self._processing_graph.nodes_functions.values():
             function_name = node_function.function_name
             func_params = node_function.func_params
-            func_params["n_jobs"] = 1
-            function = self._funcs_dict[function_name]
+            func_params["n_jobs"] = self._n_jobs_slider.value
+            function = self._func_name_to_func[function_name]
 
             input_params_to_layer_ids_dict = (
                 node_function.input_params_to_layer_ids_dict
@@ -1575,9 +1727,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
 
             input_params_to_list_of_tifpaths_dict = {
-                param: glob.glob(
-                    f"{layer_id_to_folder_path_dict[layer_id]}/*.tif"
-                )
+                param: self._path_to_files(layer_id_to_folder_path_dict[layer_id])
                 for param, layer_id in input_params_to_layer_ids_dict.items()
             }
 
@@ -1592,15 +1742,44 @@ class TapenadeProcessingWidget(QWidget):
                 compress_params,
             )
 
-            n_jobs = self._n_jobs_slider.value
+            #* functions that need to be ran sequentially
+            if function_name in [
+                # "local_image_equalization"
+            ]:            
+                for i in tqdm(range(n_tifs), desc=f"Processing {function_name}"):
+                    parallel_function(i)
+            #* functions that need special wrapping (e.g cropping)
+            elif function_name == "crop_array_using_mask":
+                output_id = next(iter(output_params_to_layer_ids_dict.values()))
+                output_folder = layer_id_to_folder_path_dict[output_id]
+                crop_array_using_mask_from_files(
+                    input_params_to_list_of_tifpaths_dict['mask'],
+                    input_params_to_list_of_tifpaths_dict['array'],
+                    output_folder,
+                    compress_params,
+                    func_params,
+                )
+            elif function_name == "align_array_major_axis":
+                output_id = next(iter(output_params_to_layer_ids_dict.values()))
+                output_folder = layer_id_to_folder_path_dict[output_id]
+                align_array_major_axis_from_files(
+                    input_params_to_list_of_tifpaths_dict['mask'],
+                    input_params_to_list_of_tifpaths_dict['array'],
+                    output_folder,
+                    compress_params,
+                    func_params,
+                )
+            #* functions that can be ran in parallel
+            else:
+                process_map(
+                    parallel_function,
+                    range(n_tifs),
+                    chunksize=1,
+                    max_workers=func_params["n_jobs"],
+                    desc=f"Processing {function_name}",
+                )
 
-            process_map(
-                parallel_function,
-                range(n_tifs),
-                chunksize=1,
-                max_workers=n_jobs,
-                desc=f"Processing {function_name}",
-            )
+        napari.utils.notifications.show_info("Macro processing finished")
 
     def _create_folder_if_needed(self, folder_path):
         if not os.path.exists(folder_path):
@@ -1651,7 +1830,7 @@ def parallel_function(
         output_folder_path = layer_id_to_folder_path_dict[output_layer_id]
 
         tifffile.imwrite(
-            f"{output_folder_path}/{output_param}_{i}.tif",
+            f"{output_folder_path}/{output_param}_{i:>04}.tif",
             function_result,
             **compress_params,
         )
@@ -1662,7 +1841,7 @@ def parallel_function(
             output_folder_path = layer_id_to_folder_path_dict[output_layer_id]
 
             tifffile.imwrite(
-                f"{output_folder_path}/{output_param}_{i}.tif",
+                f"{output_folder_path}/{output_param}_{i:>04}.tif",
                 result,
                 **compress_params,
             )
