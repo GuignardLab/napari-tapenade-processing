@@ -27,17 +27,17 @@ class ProcessingGraph:
             input_params_ids_types = recorded_function_call["input_params_to_layer_ids_and_types_dict"].items()
             output_params_ids_types = recorded_function_call["output_params_to_layer_ids_and_types_dict"].items()
 
-            input_params_to_layer_ids_dict = {
-                key: value[0] for key, value in input_params_ids_types
-            }
+            input_params_to_layer_ids_dict = OrderedDict(
+                [(key, value[0]) for key, value in input_params_ids_types]
+            )
 
             output_params_to_layer_ids_dict = OrderedDict(
                 [(key, value[0]) for key, value in output_params_ids_types]
             )
 
-            input_params_to_layer_types_dict = {
-                key: value[1] for key, value in input_params_ids_types
-            }
+            input_params_to_layer_types_dict = OrderedDict(
+                [(key, value[1]) for key, value in input_params_ids_types]
+            )
 
             output_params_to_layer_types_dict = OrderedDict(
                 [(key, value[1]) for key, value in output_params_ids_types]
