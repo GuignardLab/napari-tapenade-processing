@@ -192,8 +192,6 @@ class TapenadeProcessingWidget(QWidget):
                 },
             )
 
-            # pixel_size = self._viewer.layers[0].scale
-
             pixelsizes_container = Container(
                 widgets=[
                     self._rescale_input_pixelsize,
@@ -206,12 +204,7 @@ class TapenadeProcessingWidget(QWidget):
             self._rescale_container = Container(
                 widgets=[
                     rescale_interp_order_container,
-                    # self._rescale_interp_order_combo,
-                    Label(value="Voxelsizes (ZYX):"),
-                    # self._rescale_reshape_factors
-                    # self._rescale_input_pixelsize,
-                    # EmptyWidget(),
-                    # self._rescale_output_pixelsize,
+                    Label(value="Voxelsizes (ZYX, e.g in µm/pix):"),
                     pixelsizes_container,
                 ],
                 labels=False,
@@ -576,6 +569,20 @@ class TapenadeProcessingWidget(QWidget):
         viewer.layers.events.inserted.connect(self._update_layer_combos)
         viewer.layers.events.inserting.connect(self._update_layer_combos)
 
+        self._n_jobs_slider = create_widget(
+            widget_type="IntSlider",
+            options={"min": 1, "max": os.cpu_count(), "value": 1},
+        )
+
+        self._n_jobs_container = Container(
+            widgets=[
+                Label(value="Num. parallel jobs"),
+                self._n_jobs_slider,
+            ],
+            labels=False,
+            layout="horizontal",
+        )
+
         label_and_update_container = Container(
             widgets=[
                 Label(value="<u>Layers to process:</u>"),
@@ -588,6 +595,7 @@ class TapenadeProcessingWidget(QWidget):
 
         self._function_tab_container = Container(
             widgets=[
+                self._n_jobs_container,
                 label_and_update_container,
                 # Label(value='<u>Layers to process:</u>'),
                 layer_combos_container,
@@ -751,31 +759,24 @@ class TapenadeProcessingWidget(QWidget):
             "If not, the results will have the same shape as the input layers."
         )
 
-        self._n_jobs_slider = create_widget(
-            widget_type="IntSlider",
-            label="# parallel jobs",
-            options={"min": 1, "max": os.cpu_count(), "value": 1},
-        )
-
-        self._advanced_parameters_tab_container = Container(
+        self._general_parameters_tab_container = Container(
             widgets=[
                 self._overwrite_checkbox,
                 self._systematic_crop_checkbox,
-                self._n_jobs_slider,
             ],
             layout="vertical",
             labels=True,
         )
         ###
 
-        self._advanced_parameters_tab_container.native.layout().addStretch(1)
+        self._general_parameters_tab_container.native.layout().addStretch(1)
         self._macro_tab_container.native.layout().addStretch(1)
         self._function_tab_container.native.layout().addStretch(1)
 
         tabs.addTab(self._function_tab_container.native, "Functions")
         tabs.addTab(self._macro_tab_container.native, "Macro recording")
         tabs.addTab(
-            self._advanced_parameters_tab_container.native, "Preferences"
+            self._general_parameters_tab_container.native, "General params"
         )
 
         self.setLayout(QVBoxLayout())
@@ -1651,6 +1652,7 @@ class TapenadeProcessingWidget(QWidget):
                     self._run_macro_save_path,
                     self._run_macro_compress_checkbox,
                     self._run_macro_save_all_checkbox,
+                    self._n_jobs_container,
                     self._run_macro_button,
                 ]
             )
