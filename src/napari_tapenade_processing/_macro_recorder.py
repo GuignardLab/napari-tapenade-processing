@@ -31,7 +31,7 @@ class MacroRecorder:
         filename = f"recorded_parameters_{date}.json"
 
         with open(os.path.join(path, filename), "w") as f:
-            json.dump(self._recorded_functions_calls_list, f)
+            json.dump(self._recorded_functions_calls_list, f, indent=4)
 
         self._reset_recording()
 
