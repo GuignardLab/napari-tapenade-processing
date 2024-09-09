@@ -1,6 +1,5 @@
 from collections import OrderedDict
 
-
 class ProcessingGraph:
     def __init__(self, recorded_functions_calls_list):
         self._recorded_functions_calls_list = recorded_functions_calls_list
@@ -241,8 +240,5 @@ class Edge:
     @property
     def target_node_id_to_param_dict(self):
         return self._target_node_id_to_param_dict
-    
- 
-
 
     
