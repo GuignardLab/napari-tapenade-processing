@@ -3,26 +3,23 @@ import os
 from collections import OrderedDict
 from datetime import datetime
 
+"""
+### TODO:
+    - change the macro recorded params structure to have 
+      INPUTS ? (i) variable parameters (i.e params that are supposed to
+          change when you run the macro) 
+      FUNC PARAMS ? (ii) fixed parameters that remain the same across runs
+"""
+
 
 class MacroRecorder:
-    def __init__(self, adjective_dict):
-        self._is_recording_parameters = False
-        self._record_parameters_list = []
-
-        # key: napari name, value: standardized name
-        self._record_data_dict = {
-            "mask": {},
-            "image": {},
-            "labels": {},
-            "tracks": {},
-        }
-
-        self._adjective_dict = adjective_dict
+    def __init__(self):
+        self._reset_recording()
 
     def _reset_recording(self):
-        for k in self._record_data_dict.keys():
-            self._record_data_dict[k] = {}
-        self._record_parameters_list = []
+        self._recorded_functions_calls_list = []
+        self._layer_unique_id = -1
+        self._name_to_layer_unique_id_dict = {}
 
     def dump_recorded_parameters(self, path: str):
         date = (
@@ -34,66 +31,72 @@ class MacroRecorder:
         filename = f"recorded_parameters_{date}.json"
 
         with open(os.path.join(path, filename), "w") as f:
-            json.dump(self._record_parameters_list, f)
+            json.dump(self._recorded_functions_calls_list, f, indent=4)
 
         self._reset_recording()
 
     def record(
         self,
         function_name: str,
-        layers_names_in: dict,
-        layers_names_out: dict,
+        input_params_to_layer_names_and_types_dict: dict,
+        output_params_to_layer_names_and_types_dict: OrderedDict,
         func_params: dict,
-        overwrite: bool,
+        main_input_param_name: str
     ):
         """
-        layer_names are dicts that map layer_type (e.g 'mask', 'image'...) to
-        the names of the layers in the viewer
+        Parameters
+        ----------
+        function_name : str
+            The name of the function that is being recorded
+        
+        func_params : dict
+            A dictionary that maps the name of the parameters of the 
+            function to their values
+
+        Creates a dictionary with structure:
+        
         """
 
-        dict_in = dict()
-        dict_out = OrderedDict()
+        input_params_to_layer_ids_and_types_dict = {}
 
-        for layer_type in ["mask", "image", "labels", "tracks"]:
-            # building dict_in
-            layer_in = None
-            if layer_type in layers_names_in:
-                layer_name_in = layers_names_in[layer_type]
+        for input_param, (name, layer_type) in input_params_to_layer_names_and_types_dict.items():
 
-                if layer_name_in is not None:
-                    layer_in = self._record_data_dict[layer_type].get(
-                        layer_name_in, layer_type
-                    )
+            if name is None:
+                layer_unique_id = None
+            elif name in self._name_to_layer_unique_id_dict.keys():
+                    layer_unique_id = self._name_to_layer_unique_id_dict[name]
+            else:
+                self._layer_unique_id += 1
+                self._name_to_layer_unique_id_dict[name] = self._layer_unique_id
 
-                dict_in[layer_type] = layer_in
-            # building dict_out
-            if layer_type in layers_names_out:
-                layer_name_out = layers_names_out[layer_type]
+                layer_unique_id = self._layer_unique_id
 
-                if layer_name_out is not None:
-                    if overwrite and layer_in is not None:
-                        layer_out = layer_in
-                    elif layer_in is not None:
-                        adjective = self._adjective_dict[function_name]
-                        layer_out = f"{layer_in}_{adjective}"
-                        self._record_data_dict[layer_type][
-                            layer_name_out
-                        ] = layer_out
-                    else:
-                        layer_out = layer_type
-                        self._record_data_dict[layer_type][
-                            layer_name_out
-                        ] = layer_out
-                else:
-                    layer_out = None
+            input_params_to_layer_ids_and_types_dict[input_param] = (layer_unique_id, layer_type)
 
-                dict_out[layer_type] = layer_out
 
+        output_params_to_layer_ids_and_types_dict = OrderedDict()
+
+        for output_param, (name, layer_type) in output_params_to_layer_names_and_types_dict.items():
+
+            if name is None:
+                layer_unique_id = None
+            elif name in self._name_to_layer_unique_id_dict.keys():
+                layer_unique_id = self._name_to_layer_unique_id_dict[name]
+            else:
+                self._layer_unique_id += 1
+                self._name_to_layer_unique_id_dict[name] = self._layer_unique_id
+
+                layer_unique_id = self._layer_unique_id
+            
+            output_params_to_layer_ids_and_types_dict[output_param] = (layer_unique_id, layer_type)
+
+        
         params = {
-            "function": function_name,
-            "in": dict_in,
-            "out": dict_out,
+            "func_name": function_name,
             "func_params": func_params,
+            "main_input_param_name": main_input_param_name,
+            "input_params_to_layer_ids_and_types_dict": input_params_to_layer_ids_and_types_dict,
+            "output_params_to_layer_ids_and_types_dict": output_params_to_layer_ids_and_types_dict,
         }
 
-        self._record_parameters_list.append(params)
+        self._recorded_functions_calls_list.append(params)

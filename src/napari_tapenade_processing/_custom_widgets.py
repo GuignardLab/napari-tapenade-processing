@@ -1,99 +1,129 @@
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QPoint, Qt, QRect
 from qtpy.QtWidgets import (
-    QHBoxLayout,
+    QApplication,
     QLabel,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
 )
+from qtpy import QtGui
 
 
-class MultiLineTabWidget(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.initUI()
+class HoverTooltipButton(QPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setFixedSize(20, 20)  # Small square button
+        self.setText("?")  # Add interrogation mark inside the button
+        self.setCheckable(True)  # Toggle button to show/hide the tooltip
 
-    def initUI(self):
-        self.layout = QVBoxLayout()
-        self.tabBarLayout = QVBoxLayout()
-
-        self.scrollArea = QScrollArea()
-        self.scrollArea.setWidgetResizable(True)
-        self.tabContainer = QWidget()
-        self.tabContainer.setLayout(self.tabBarLayout)
-        self.scrollArea.setWidget(self.tabContainer)
-
-        self.layout.addWidget(self.scrollArea)
-
-        self.stackedWidget = QStackedWidget()
-        self.layout.addWidget(self.stackedWidget)
-
-        self.setLayout(self.layout)
-
-        self.tabs = []
-
-    def addTab(self, widget, title):
-        tabButton = QPushButton(title)
-        tabButton.setCheckable(True)
-        tabButton.clicked.connect(lambda: self.onTabClicked(tabButton))
-
-        tabRowLayout = None
-        if len(self.tabs) % 3 == 0:
-            tabRowLayout = QHBoxLayout()
-            self.tabBarLayout.addLayout(tabRowLayout)
-        else:
-            tabRowLayout = self.tabBarLayout.itemAt(
-                self.tabBarLayout.count() - 1
-            ).layout()
-
-        tabRowLayout.addWidget(tabButton)
-        self.tabs.append(tabButton)
-
-        self.stackedWidget.addWidget(widget)
-
-    def onTabClicked(self, tabButton):
-        for i, btn in enumerate(self.tabs):
-            if btn == tabButton:
-                self.stackedWidget.setCurrentIndex(i)
-                btn.setChecked(True)
-            else:
-                btn.setChecked(False)
-
-
-class RichTextPushButton(QPushButton):
-    def __init__(self, parent=None, text=None):
-        if parent is not None:
-            super().__init__(parent)
-        else:
-            super().__init__()
-        self.__lbl = QLabel(self)
-        if text is not None:
-            self.__lbl.setText(text)
-        self.__lyt = QHBoxLayout()
-        self.__lyt.setContentsMargins(0, 0, 0, 0)
-        self.__lyt.setSpacing(0)
-        self.setLayout(self.__lyt)
-        self.__lbl.setAttribute(Qt.WA_TranslucentBackground)
-        self.__lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.__lbl.setSizePolicy(
-            QSizePolicy.Expanding,
-            QSizePolicy.Expanding,
+        # Create the custom tooltip as a top-level widget (not a child of the button)
+        self.text_box = QLabel()
+        self.text_box.setText(text)
+        self.text_box.setStyleSheet(
+            "background-color: yellow; border: 1px solid black; padding: 5px;"
         )
-        self.__lbl.setTextFormat(Qt.RichText)
-        self.__lyt.addWidget(self.__lbl)
-        return
+        self.text_box.setWindowFlags(Qt.ToolTip)  # Make it look like a tooltip
+        self.text_box.hide()
 
-    def setText(self, text):
-        self.__lbl.setText(text)
-        self.updateGeometry()
-        return
+        # Enable mouse tracking to track mouse movement inside the button
+        self.setMouseTracking(True)
 
-    def sizeHint(self):
-        s = QPushButton.sizeHint(self)
-        w = self.__lbl.sizeHint()
-        s.setWidth(w.width())
-        s.setHeight(w.height())
-        return s
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if self.isChecked():
+                self.setChecked(False)  # Uncheck to hide the tooltip
+                self.text_box.hide()
+            else:
+                self.setChecked(True)  # Check to show the tooltip
+                # move the tooltip to the mouse position
+                self.adjust_tooltip_position(event.globalPos())
+                self.text_box.show()  # Immediately show tooltip on click
+        super().mousePressEvent(event)
+
+    def leaveEvent(self, event):
+        # Hide the text box when mouse leaves the button
+        self.text_box.hide()
+        self.setChecked(False)  # Uncheck to hide the tooltip
+        super().leaveEvent(event)
+
+    def mouseMoveEvent(self, event):
+        # Update tooltip position to follow the mouse using global coordinates
+        if self.isChecked():
+            # self.text_box.move(event.globalPos() + QPoint(10, 10))  # Offset for better visibility
+            self.adjust_tooltip_position(event.globalPos())
+        super().mouseMoveEvent(event)
+
+    def adjust_tooltip_position(self, cursor_pos):
+        screen = QApplication.screenAt(cursor_pos)
+
+        if screen is not None:
+            screen_rect = (
+                screen.availableGeometry()
+            )  # Get the geometry of the screen with the cursor
+        else:
+            screen_rect = (
+                QApplication.desktop().availableGeometry()
+            )  # Fallback to primary screen
+
+        # Get the size of the tooltip
+        tooltip_size = self.text_box.sizeHint()
+
+        # Calculate the desired position of the tooltip
+        new_x = cursor_pos.x() + 10  # Offset for better visibility
+        new_y = cursor_pos.y() + 10
+
+        # Adjust the position if the tooltip goes beyond the screen's right edge
+        if new_x + tooltip_size.width() > screen_rect.right():
+            new_x = (
+                screen_rect.right() - tooltip_size.width() - 10
+            )  # Shift left
+
+        # Adjust the position if the tooltip goes beyond the screen's bottom edge
+        if new_y + tooltip_size.height() > screen_rect.bottom():
+            new_y = (
+                screen_rect.bottom() - tooltip_size.height() - 10
+            )  # Shift up
+
+        # Adjust the position if the tooltip goes beyond the screen's left edge
+        if new_x < screen_rect.left():
+            new_x = screen_rect.left() + 10  # Shift right
+
+        # Adjust the position if the tooltip goes beyond the screen's top edge
+        if new_y < screen_rect.top():
+            new_y = screen_rect.top() + 10  # Shift down
+
+        # Move the tooltip to the new adjusted position
+        self.text_box.move(QPoint(new_x, new_y))
+
+
+
+class SwitchButton(QPushButton):
+    def __init__(self, parent = None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(True)
+        self.setMinimumWidth(66)
+        self.setMinimumHeight(22)
+
+    def paintEvent(self, event):
+        label = "ON" if self.isChecked() else "OFF"
+        bg_color = Qt.blue if self.isChecked() else Qt.blue
+
+        radius = 10
+        width = 32
+        center = self.rect().center()
+
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.translate(center)
+        painter.setBrush(QtGui.QColor(0,0,0))
+
+        pen = QtGui.QPen(Qt.black)
+        pen.setWidth(2)
+        painter.setPen(pen)
+
+        painter.drawRoundedRect(QRect(-width, -radius, 2*width, 2*radius), radius, radius)
+        painter.setBrush(QtGui.QBrush(bg_color))
+        sw_rect = QRect(-radius, -radius, width + radius, 2*radius)
+        if not self.isChecked():
+            sw_rect.moveLeft(-width)
+        painter.drawRoundedRect(sw_rect, radius, radius)
+        painter.drawText(sw_rect, Qt.AlignCenter, label)
