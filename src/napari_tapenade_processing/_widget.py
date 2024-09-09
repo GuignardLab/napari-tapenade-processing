@@ -50,6 +50,10 @@ from tqdm.contrib.concurrent import process_map
 from napari_tapenade_processing._custom_widgets import HoverTooltipButton
 from napari_tapenade_processing._macro_recorder import MacroRecorder
 from napari_tapenade_processing._processing_graph import ProcessingGraph
+from NodeGraphQt import BaseNode, NodeGraph
+from NodeGraphQt.widgets.node_widgets import NodeBaseWidget
+from NodeGraphQt.constants import NodePropWidgetEnum
+
 
 if TYPE_CHECKING:
     import napari
@@ -73,6 +77,17 @@ if TYPE_CHECKING:
     - close holes
 
 """
+
+
+
+
+class MyBasicNode(BaseNode):
+    __identifier__ = 'nodes.basic'
+
+    NODE_NAME = 'MyBasicNode'
+
+    def __init__(self):
+        super(MyBasicNode, self).__init__()
 
 
 class TapenadeProcessingWidget(QWidget):
@@ -874,6 +889,103 @@ class TapenadeProcessingWidget(QWidget):
         self._disable_irrelevant_layers(0)
         self._update_layer_combos()
 
+    def _display_macro_graph(self):
+        # create graph controller.
+        graph = NodeGraph()
+        graph_widget = graph.widget
+        graph_widget.resize(1100, 800)
+        graph_widget.show()
+        graph.register_node(MyBasicNode)
+        graph.set_context_menu_from_file('/home/jvanaret/git_repos/NodeGraphQt/examples/hotkeys/hotkeys.json')
+
+        self._viewer.window.add_dock_widget(graph_widget, area="bottom")
+
+        if self._run_macro_parameters_path.value == "" or not os.path.exists(
+            self._run_macro_parameters_path.value
+        ):
+            napari.utils.notifications.show_warning(
+                "Please enter a valid path to the macro parameters"
+            )
+            return
+
+        # This way to write it is kinda stupid, but I did this to only
+        # minimally modify the old demo version that had a continuously
+        # updating graph.
+        with open(self._run_macro_parameters_path.value, 'r') as f:
+            self._recorder._recorded_functions_calls_list = json.load(f)
+        self._macro_graph = graph
+        self._update_graph_widget()
+
+    def _update_graph_widget(self):
+
+        graph = self._macro_graph
+        if graph is None:
+            return
+        graph.clear_session()
+        
+        self._processing_graph = ProcessingGraph(
+            recorded_functions_calls_list=self._recorder._recorded_functions_calls_list
+        )
+
+        graph_nodes_dict = {}
+        nodes_dict = self._processing_graph.nodes_functions 
+
+
+        for node in nodes_dict.values():
+
+            graph_node = graph.create_node('nodes.basic.MyBasicNode')
+            graph_node.set_name(node.function_name)
+
+            for param_name in node.input_params_to_layer_ids_dict.keys():
+                graph_node.add_input(param_name, multi_input=False)
+            for param_name in node.output_params_to_layer_ids_dict.keys():
+                graph_node.add_output(param_name, multi_output=True)
+
+            # show the dict "func_params" of node as text in graph_node
+            graph_node.create_property(
+                '',
+                value='',
+                widget_type=NodePropWidgetEnum.QLABEL.value,
+                tab=None
+            )
+            widget = NodeBaseWidget(graph_node.view, '', '')
+            params = node.func_params
+            params.pop('n_jobs', None)
+            label_string = [f'{k}: {v}\n' for k, v in params.items()]
+            label_string = ''.join(label_string)
+            label = QLabel(label_string)
+            # change label text color to white
+            label.setStyleSheet('color: white')
+            widget.set_custom_widget(label)
+            graph_node.view.add_widget(widget)
+            #: redraw node to address calls outside the "__init__" func.
+            graph_node.view.draw_node()
+
+            graph_nodes_dict[node.unique_id] = graph_node
+
+        for edge in self._processing_graph.edges:
+            source_node_id_to_param_dict = edge.source_node_id_to_param_dict
+            target_node_id_to_param_dict = edge.target_node_id_to_param_dict
+
+            source_node_id, source_param = next(iter(source_node_id_to_param_dict.items()))
+            source_node = graph_nodes_dict[source_node_id]
+
+            target_node_id, target_param = next(iter(target_node_id_to_param_dict.items()))
+            target_node = graph_nodes_dict[target_node_id]
+
+            target_node.set_input(
+                list(nodes_dict[target_node_id].input_params_to_layer_ids_dict.keys()).index(target_param),
+                source_node.output(
+                    list(nodes_dict[source_node_id].output_params_to_layer_ids_dict.keys()).index(source_param)
+                )
+            )
+
+        graph.auto_layout_nodes()
+
+        # fit nodes to the viewer.
+        graph.clear_selection()
+        graph.fit_to_selection()
+
     def _add_tooltip_button_to_container(self, container, tooltip_text):
         button = HoverTooltipButton(tooltip_text)
         button.native = button
@@ -1162,8 +1274,6 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _run_compute_mask(self):
 
@@ -1213,8 +1323,6 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _run_local_equalization(self):
 
@@ -1293,8 +1401,6 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _run_normalize_intensity(self):
 
@@ -1399,8 +1505,6 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _run_align_major_axis(self):
 
@@ -1470,8 +1574,6 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _update_target_axis_choices(self, event):
 
@@ -1544,8 +1646,6 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _run_crop_array_using_mask(self):
 
@@ -1612,8 +1712,6 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _reset_macro_widgets(self):
         self._macro_widgets = {}
@@ -1643,6 +1741,17 @@ class TapenadeProcessingWidget(QWidget):
             self._processing_graph = ProcessingGraph(
                 recorded_functions_calls_list=recorded_functions_calls_list
             )
+
+            display_macro_as_graph_button = create_widget(
+                widget_type="PushButton", 
+                label="Inspect macro (display as graph)"
+            )
+
+            display_macro_as_graph_button.clicked.connect(
+                self._display_macro_graph
+            )
+
+            self._macro_tab_container.append(display_macro_as_graph_button)
 
             root_layer_ids_to_types_dict = (
                 self._processing_graph.roots_layers_ids
