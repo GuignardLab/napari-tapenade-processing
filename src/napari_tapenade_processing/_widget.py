@@ -8,15 +8,6 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from qtpy import QtWidgets, QtCore
-
-from NodeGraphQt import (
-    NodeGraph,
-)
-from NodeGraphQt import BaseNode
-from NodeGraphQt.constants import NodePropWidgetEnum
-from NodeGraphQt.widgets.node_widgets import NodeBaseWidget
-
 import napari.utils
 import numpy as np
 import tifffile
@@ -27,6 +18,7 @@ from magicgui.widgets import (
     EmptyWidget,
     Label,
     create_widget,
+    CheckBox
 )
 from napari.layers import Image
 from natsort import natsorted
@@ -57,6 +49,7 @@ from tqdm.contrib.concurrent import process_map
 
 from napari_tapenade_processing._macro_recorder import MacroRecorder
 from napari_tapenade_processing._processing_graph import ProcessingGraph
+from napari_tapenade_processing._custom_widgets import HoverTooltipButton
 
 if TYPE_CHECKING:
     import napari
@@ -80,14 +73,6 @@ if TYPE_CHECKING:
     - close holes
 
 """
-
-class MyBasicNode(BaseNode):
-    __identifier__ = 'nodes.basic'
-
-    NODE_NAME = 'MyBasicNode'
-
-    def __init__(self):
-        super(MyBasicNode, self).__init__()
 
 
 class TapenadeProcessingWidget(QWidget):
@@ -157,11 +142,13 @@ class TapenadeProcessingWidget(QWidget):
                 },
             )
             self._rescale_interp_order_combo.bind(self._bind_combo_interpolation_order)
-            tooltip_rescale = "Interpolation order.\n0: Nearest, 1: Linear, 3: Cubic\nBigger means slower"
-            self._rescale_interp_order_combo.native.setToolTip(tooltip_rescale)
+            tooltip_rescale = (
+                "Interpolation order.\n"
+                "0: Nearest, 1: Linear, 3: Cubic\n"
+                "Bigger means slower but smoother."
+            )
 
             rescale_interp_order_label = Label(value="Images interp order")
-            rescale_interp_order_label.native.setToolTip(tooltip_rescale)
 
             rescale_interp_order_container = Container(
                 widgets=[
@@ -170,6 +157,11 @@ class TapenadeProcessingWidget(QWidget):
                 ],
                 layout="horizontal",
                 labels=False,
+            )
+
+            self._add_tooltip_button_to_container(
+                rescale_interp_order_container,
+                tooltip_rescale
             )
 
             self._rescale_input_pixelsize = create_widget(
@@ -226,9 +218,14 @@ class TapenadeProcessingWidget(QWidget):
                 label="Method",
                 options={"choices": ["otsu", "snp otsu"], "value": "snp otsu"},
             )
-            self._compute_mask_method_combo.native.setToolTip(
+
+            compute_mask_method_tooltip = (
                 "otsu: thresholding with Otsu's method on blurred image.\n"
-                "snp otsu: more robust version of thresholding with Otsu's method. Also slower."
+                "snp otsu: more robust but slower version of thresholding with Otsu's method."
+            )
+            compute_mask_method_container = self._add_tooltip_button_to_container(
+                self._compute_mask_method_combo,
+                compute_mask_method_tooltip
             )
 
             self._compute_mask_sigma_blur_slider = create_widget(
@@ -236,9 +233,15 @@ class TapenadeProcessingWidget(QWidget):
                 label="Sigma blur",
                 options={"min": 1, "max": 10, "value": 3},
             )
-            self._compute_mask_sigma_blur_slider.native.setToolTip(
+
+            compute_mask_sigma_blur_tooltip = (
                 "Sigma of the Gaussian blur applied to the image before thresholding\n"
                 "A good default is ~ object radius/3."
+            )
+
+            compute_mask_sigma_blur_container = self._add_tooltip_button_to_container(
+                self._compute_mask_sigma_blur_slider,
+                compute_mask_sigma_blur_tooltip
             )
 
             self._compute_mask_threshold_factor_slider = create_widget(
@@ -246,9 +249,14 @@ class TapenadeProcessingWidget(QWidget):
                 label="Threshold factor",
                 options={"min": 0.5, "max": 1.5, "value": 1},
             )
-            self._compute_mask_threshold_factor_slider.native.setToolTip(
+            compute_mask_threshold_factor_tooltip = (
                 "Multiplicative factor applied to the threshold computed by the chosen method\n"
                 "Usually only if the mask is too inclusive (put factor > 1) or exclusive (put factor < 1)."
+            )
+
+            compute_mask_threshold_factor_container = self._add_tooltip_button_to_container(
+                self._compute_mask_threshold_factor_slider,
+                compute_mask_threshold_factor_tooltip
             )
 
             self._convex_hull_checkbox = create_widget(
@@ -256,8 +264,13 @@ class TapenadeProcessingWidget(QWidget):
                 label="Compute convex hull",
                 options={"value": False},
             )
-            self._convex_hull_checkbox.native.setToolTip(
+            
+            convex_hull_checkbox_tooltip = (
                 "Returns the convex hull of the mask. Really slow."
+            )
+            convex_hull_container = self._add_tooltip_button_to_container(
+                self._convex_hull_checkbox,
+                convex_hull_checkbox_tooltip
             )
 
             self._registered_image_checkbox = create_widget(
@@ -265,19 +278,25 @@ class TapenadeProcessingWidget(QWidget):
                 label="Registered image",
                 options={"value": False},
             )
-            self._registered_image_checkbox.native.setToolTip(
+            registered_image_tooltip = (
                 "If checked, the image is assumed to have large areas of 0s outside of the tapenade.\n"
                 "These values will be masked"
             )
 
+            registered_image_container = self._add_tooltip_button_to_container(
+                self._registered_image_checkbox,
+                registered_image_tooltip
+            )
+
             self._compute_mask_container = Container(
                 widgets=[
-                    self._compute_mask_method_combo,
-                    self._compute_mask_sigma_blur_slider,
-                    self._compute_mask_threshold_factor_slider,
-                    self._convex_hull_checkbox,
-                    self._registered_image_checkbox,
+                    compute_mask_method_container,
+                    compute_mask_sigma_blur_container,
+                    compute_mask_threshold_factor_container,
+                    convex_hull_container,
+                    registered_image_container,
                 ],
+                labels=False
             )
 
             # Local equalization
@@ -286,9 +305,14 @@ class TapenadeProcessingWidget(QWidget):
                 label="Box size",
                 options={"min": 3, "max": 25, "value": 10},
             )
-            self._local_norm_box_size_slider.native.setToolTip(
+            local_norm_box_size_tooltip = (
                 "Size of the box used for the local equalization\n"
                 "A good default is ~ 3/2 * object radius."
+            )
+
+            local_norm_box_size_container = self._add_tooltip_button_to_container(
+                self._local_norm_box_size_slider,
+                local_norm_box_size_tooltip
             )
 
             self._local_norm_percentiles_slider = create_widget(
@@ -296,15 +320,21 @@ class TapenadeProcessingWidget(QWidget):
                 label="Percentiles",
                 options={"min": 0, "max": 100, "value": [1, 99]},
             )
-            self._local_norm_percentiles_slider.native.setToolTip(
+            local_norm_percentiles_tooltip = (
                 "Percentiles used for the local equalization."
+            )
+
+            local_norm_percentiles_container = self._add_tooltip_button_to_container(
+                self._local_norm_percentiles_slider,
+                local_norm_percentiles_tooltip
             )
 
             self._local_equalization_container = Container(
                 widgets=[
-                    self._local_norm_box_size_slider,
-                    self._local_norm_percentiles_slider,
+                    local_norm_box_size_container,
+                    local_norm_percentiles_container,
                 ],
+                labels=False
             )
 
             # Intensity normalization
@@ -314,9 +344,14 @@ class TapenadeProcessingWidget(QWidget):
                 options={"min": 0, "max": 30, "value": 20},
             )
 
-            self._int_norm_sigma_slider.native.setToolTip(
+            int_norm_sigma_tooltip = (
                 "Sigma for the multiscale gaussian smoothing used to normalize the reference signal.\n"
                 "If 0, the sigma is automatically computed."
+            )
+
+            int_norm_sigma_container = self._add_tooltip_button_to_container(
+                self._int_norm_sigma_slider,
+                int_norm_sigma_tooltip
             )
 
             self._int_norm_width_slider = create_widget(
@@ -324,20 +359,26 @@ class TapenadeProcessingWidget(QWidget):
                 label="Width of ref plane",
                 options={"min": 1, "max": 5, "value": 3},
             )
-            self._int_norm_width_slider.native.setToolTip(
+            int_norm_width_tooltip = (
                 "Width of the reference plane used to compute normalization values.\n"
                 "You usually don't need to change this."
             )
 
+            int_norm_width_container = self._add_tooltip_button_to_container(
+                self._int_norm_width_slider,
+                int_norm_width_tooltip
+            )
+
             self._int_norm_container = Container(
                 widgets=[
-                    self._int_norm_sigma_slider,
-                    self._int_norm_width_slider,
+                    int_norm_sigma_container,
+                    int_norm_width_container,
                 ],
+                labels=False
             )
 
             # Aligning major axis
-            self._align_major_axis_order_combo = create_widget(
+            self._align_major_axis_interp_order_combo = create_widget(
                 label="Interp order",
                 options={
                     "choices": ["Nearest", "Linear", "Cubic"],
@@ -345,14 +386,18 @@ class TapenadeProcessingWidget(QWidget):
                 },
             )
 
-            self._align_major_axis_order_combo.bind(
+            self._align_major_axis_interp_order_combo.bind(
                 self._bind_combo_interpolation_order
             )
 
-            self._align_major_axis_order_combo.native.setToolTip(
+            align_major_axis_order_tooltip = (
                 "Interpolation order.\n0: Nearest, 1: Linear, 3: Cubic\nBigger means slower"
             )
 
+            align_major_axis_order_container = self._add_tooltip_button_to_container(
+                self._align_major_axis_interp_order_combo,
+                align_major_axis_order_tooltip
+            )
 
             self._align_major_axis_rotation_plane_combo = create_widget(
                 label="Rotation plane",
@@ -363,21 +408,37 @@ class TapenadeProcessingWidget(QWidget):
                 self._update_target_axis_choices
             )
 
+            align_major_axis_rotation_plane_tooltip = (
+                "2D plane in which the major axis of the mask will be computed,\n"
+                "and the rotation will be applied."
+            )
+
+            align_major_axis_rotation_plane_container = self._add_tooltip_button_to_container(
+                self._align_major_axis_rotation_plane_combo,
+                align_major_axis_rotation_plane_tooltip
+            ) 
+
             self._align_major_axis_target_axis_combo = create_widget(
                 label="Target axis",
                 options={"choices": ["Y", "X"]},
             )
 
-            self._align_major_axis_target_axis_combo.native.setToolTip(
+            align_major_axis_target_axis_tooltip = (
                 "Axis to align the major axis of the mask with."
+            )
+
+            align_major_axis_target_axis_container = self._add_tooltip_button_to_container(
+                self._align_major_axis_target_axis_combo,
+                align_major_axis_target_axis_tooltip
             )
 
             self._align_major_axis_container = Container(
                 widgets=[
-                    self._align_major_axis_order_combo,
-                    self._align_major_axis_rotation_plane_combo,
-                    self._align_major_axis_target_axis_combo,
+                    align_major_axis_order_container,
+                    align_major_axis_rotation_plane_container,
+                    align_major_axis_target_axis_container,
                 ],
+                labels=False,
             )
 
             # Removing labels outside of mask
@@ -556,9 +617,6 @@ class TapenadeProcessingWidget(QWidget):
         update_layers_combos_button = create_widget(
             widget_type="PushButton", label="Refresh"
         )
-        update_layers_combos_button.native.setToolTip(
-            "Click refresh if a layer does not appear in the list or has a wrong name."
-        )
 
         update_layers_combos_button.clicked.connect(self._update_layer_combos)
         viewer.layers.events.changed.connect(self._update_layer_combos)
@@ -568,6 +626,21 @@ class TapenadeProcessingWidget(QWidget):
         viewer.layers.events.removing.connect(self._update_layer_combos)
         viewer.layers.events.inserted.connect(self._update_layer_combos)
         viewer.layers.events.inserting.connect(self._update_layer_combos)
+
+        label_and_update_container = Container(
+            widgets=[
+                Label(value="<u>Layers to process:</u>"),
+                EmptyWidget(),
+                update_layers_combos_button,
+            ],
+            layout="horizontal",
+            labels=False,
+        )
+
+        self._add_tooltip_button_to_container(
+            label_and_update_container,
+            "Click refresh if a layer does not appear in the list or has a wrong name."
+        )
 
         self._n_jobs_slider = create_widget(
             widget_type="IntSlider",
@@ -583,21 +656,23 @@ class TapenadeProcessingWidget(QWidget):
             layout="horizontal",
         )
 
-        label_and_update_container = Container(
-            widgets=[
-                Label(value="<u>Layers to process:</u>"),
-                EmptyWidget(),
-                update_layers_combos_button,
-            ],
-            layout="horizontal",
-            labels=False,
+        n_jobs_tooltip = "Number of parallel jobs to run.\n" \
+                        "Increasing this number will speed up the computation," \
+                        "but can dramatically increase the amount of memory used.\n" \
+                        "When running functions in the \"Functions\" tab, parallel computation" \
+                        "is triggered if the input arrays are detected as being temporal.\n" \
+                        "When running a macro in the \"Macro recording\" tab, each frame is" \
+                        "processed in parallel."
+
+        self._add_tooltip_button_to_container(
+            self._n_jobs_container,
+            n_jobs_tooltip
         )
 
         self._function_tab_container = Container(
             widgets=[
                 self._n_jobs_container,
                 label_and_update_container,
-                # Label(value='<u>Layers to process:</u>'),
                 layer_combos_container,
                 # update_layers_combos_button,
                 Label(value="<u>Processing functions:</u>"),
@@ -660,8 +735,6 @@ class TapenadeProcessingWidget(QWidget):
         self._test_button = create_widget(
             widget_type="PushButton", label="Display macro graph"
         )
-        self._test_button.clicked.connect(self._display_macro_graph)
-        self._test_button.native.setEnabled(False)
 
         self._macro_tab_container = Container(
             widgets=[
@@ -669,12 +742,10 @@ class TapenadeProcessingWidget(QWidget):
                 Label(value="Path to save the macro json file:"),
                 self._record_parameters_path,
                 self._record_parameters_button,
-                self._test_button,
                 EmptyWidget(),
                 Label(value="<u>Running macro</u>"),
                 Label(value="Paths to macro parameters:"),
                 self._run_macro_parameters_path,
-                # EmptyWidget(),
             ],
             layout="vertical",
             labels=False,
@@ -709,7 +780,7 @@ class TapenadeProcessingWidget(QWidget):
         label.name = ""
 
         link_website = "morphotiss.org/"
-        link_DOI = "https://doi.org/10.1101/2024.08.13.607832 "
+        link_DOI = "https://doi.org/10.1101/2024.08.13.607832"
 
         texts_container = Container(
             widgets=[
@@ -740,32 +811,36 @@ class TapenadeProcessingWidget(QWidget):
             options={"value": False},
         )
 
-        self._overwrite_checkbox.native.setToolTip(
+        self._overwrite_tooltip = (
             "If checked, the new layers will overwrite the previous ones.\n"
             "This can be useful to save memory."
         )
-        # self._overwrite_checkbox.native.setEnabled(False)
 
-        self._systematic_crop_checkbox = create_widget(
-            widget_type="CheckBox",
-            label="Results are cropped using mask",
-            options={"value": False},
+        overwrite_container = self._add_tooltip_button_to_container(
+            self._overwrite_checkbox,
+            self._overwrite_tooltip
         )
-        self._systematic_crop_checkbox.native.setEnabled(False)
 
-        self._systematic_crop_checkbox.native.setToolTip(
-            "If checked, the results of the functions will be systematically cropped using the mask.\n"
-            "This can be useful to save memory.\n"
-            "If not, the results will have the same shape as the input layers."
-        )
+        # self._systematic_crop_checkbox = create_widget(
+        #     widget_type="CheckBox",
+        #     label="Results are cropped using mask",
+        #     options={"value": False},
+        # )
+        # self._systematic_crop_checkbox.native.setEnabled(False)
+
+        # self._systematic_crop_tooltip = (
+        #     "If checked, the results of the functions will be systematically cropped using the mask.\n"
+        #     "This can be useful to save memory.\n"
+        #     "If not, the results will have the same shape as the input layers."
+        # )
 
         self._general_parameters_tab_container = Container(
             widgets=[
-                self._overwrite_checkbox,
-                self._systematic_crop_checkbox,
+                overwrite_container,
+                # self._systematic_crop_checkbox,
             ],
             layout="vertical",
-            labels=True,
+            labels=False,
         )
         ###
 
@@ -788,94 +863,38 @@ class TapenadeProcessingWidget(QWidget):
         self._disable_irrelevant_layers(0)
         self._update_layer_combos()
 
+    def _add_tooltip_button_to_container(self, container, tooltip_text):
+        button = HoverTooltipButton(tooltip_text)
+        button.native = button
 
-        self._macro_graph=None
-
-    def _display_macro_graph(self):
-        # create graph controller.
-        graph = NodeGraph()
-        graph_widget = graph.widget
-        graph_widget.resize(1100, 800)
-        graph_widget.show()
-        graph.register_node(MyBasicNode)
-
-        self._macro_graph = graph
-
-        graph.set_context_menu_from_file('/home/jvanaret/git_repos/NodeGraphQt/examples/hotkeys/hotkeys.json')
-
-        self._viewer.window.add_dock_widget(graph_widget, area="bottom")
-
-        self._update_graph_widget()
-
-    def _update_graph_widget(self):
-
-        graph = self._macro_graph
-        if graph is None:
-            return
-        graph.clear_session()
-        
-        self._processing_graph = ProcessingGraph(
-            recorded_functions_calls_list=self._recorder._recorded_functions_calls_list
-        )
-
-        graph_nodes_dict = {}
-        nodes_dict = self._processing_graph.nodes_functions 
-
-
-        for node in nodes_dict.values():
-
-            graph_node = graph.create_node('nodes.basic.MyBasicNode')
-            graph_node.set_name(node.function_name)
-
-            for param_name in node.input_params_to_layer_ids_dict.keys():
-                graph_node.add_input(param_name, multi_input=False)
-            for param_name in node.output_params_to_layer_ids_dict.keys():
-                graph_node.add_output(param_name, multi_output=True)
-
-            # show the dict "func_params" of node as text in graph_node
-            graph_node.create_property(
-                '',
-                value='',
-                widget_type=NodePropWidgetEnum.QLABEL.value,
-                tab=None
-            )
-            widget = NodeBaseWidget(graph_node.view, '', '')
-            params = node.func_params
-            params.pop('n_jobs', None)
-            label_string = [f'{k}: {v}\n' for k, v in params.items()]
-            label_string = ''.join(label_string)
-            label = QLabel(label_string)
-            # change label text color to white
-            label.setStyleSheet('color: white')
-            widget.set_custom_widget(label)
-            graph_node.view.add_widget(widget)
-            #: redraw node to address calls outside the "__init__" func.
-            graph_node.view.draw_node()
-
-            graph_nodes_dict[node.unique_id] = graph_node
-
-        for edge in self._processing_graph.edges:
-            source_node_id_to_param_dict = edge.source_node_id_to_param_dict
-            target_node_id_to_param_dict = edge.target_node_id_to_param_dict
-
-            source_node_id, source_param = next(iter(source_node_id_to_param_dict.items()))
-            source_node = graph_nodes_dict[source_node_id]
-
-            target_node_id, target_param = next(iter(target_node_id_to_param_dict.items()))
-            target_node = graph_nodes_dict[target_node_id]
-
-            target_node.set_input(
-                list(nodes_dict[target_node_id].input_params_to_layer_ids_dict.keys()).index(target_param),
-                source_node.output(
-                    list(nodes_dict[source_node_id].output_params_to_layer_ids_dict.keys()).index(source_param)
+        if isinstance(container, Container):
+            container.append(button)
+        else:
+            if isinstance(container, CheckBox):
+                container = Container(
+                    widgets=[
+                        container, 
+                        button
+                    ],
+                    labels=False,
+                    layout="horizontal",
                 )
-            )
+            else:
+                container_label = container.label
+                container.label = ""
+                container = Container(
+                    widgets=[
+                        Label(value=container_label),
+                        container, 
+                        button
+                    ],
+                    labels=False,
+                    layout="horizontal",
+                )
+            return container
+        return None
+        
 
-        graph.auto_layout_nodes()
-
-        # fit nodes to the viewer.
-        graph.clear_selection()
-        graph.fit_to_selection()
 
     def _bind_combo_interpolation_order(self, obj):
         if obj.native.currentText() == "Nearest":
@@ -1406,6 +1425,8 @@ class TapenadeProcessingWidget(QWidget):
         array = align_array_major_axis(
             mask=mask_layer.data, array=array_layer.data, **func_params
         )
+        if layer_type == "Mask":
+            array = array.astype(bool)
         print(f"Alignment took {time.time() - start_time} seconds")
 
         old_name = array_layer.name
@@ -1746,7 +1767,6 @@ class TapenadeProcessingWidget(QWidget):
 
             #* functions that need to be ran sequentially
             if function_name in [
-                # "local_image_equalization"
             ]:            
                 for i in tqdm(range(n_tifs), desc=f"Processing {function_name}"):
                     parallel_function(i)
