@@ -1036,6 +1036,8 @@ class TapenadeProcessingWidget(QWidget):
     def _add_tooltip_button_to_container(self, container, tooltip_text):
         button = HoverTooltipButton(tooltip_text)
         button.native = button
+        button._explicitly_hidden = False
+        button.name = ""
 
         if isinstance(container, Container):
             container.append(button)
