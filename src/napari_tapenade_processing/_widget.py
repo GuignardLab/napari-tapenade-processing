@@ -1033,6 +1033,8 @@ class TapenadeProcessingWidget(QWidget):
         self._disable_irrelevant_layers(0)
         self._update_layer_combos()
 
+        self._macro_graph = None
+
     def _add_tooltip_button_to_container(self, container, tooltip_text):
         button = HoverTooltipButton(tooltip_text)
         button.native = button
