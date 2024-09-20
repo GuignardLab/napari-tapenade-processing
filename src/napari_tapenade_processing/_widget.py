@@ -40,6 +40,8 @@ from tapenade.preprocessing import (
     crop_array_using_mask_from_files,
     local_image_equalization,
     normalize_intensity,
+    segment_stardist,
+    segment_stardist_from_files,
     masked_gaussian_smoothing
 )
 from tapenade.preprocessing.segmentation_postprocessing import (
@@ -274,17 +276,49 @@ class TapenadeProcessingWidget(QWidget):
                 )
             )
 
-            self._convex_hull_checkbox = create_widget(
-                widget_type="CheckBox",
-                label="Compute convex hull",
-                options={"value": False},
+            # self._convex_hull_checkbox = create_widget(
+            #     widget_type="CheckBox",
+            #     label="Compute convex hull",
+            #     options={"value": False},
+            # )
+
+            # convex_hull_checkbox_tooltip = (
+            #     "Returns the convex hull of the mask. Really slow."
+            # )
+            # convex_hull_container = self._add_tooltip_button_to_container(
+            #     self._convex_hull_checkbox, convex_hull_checkbox_tooltip
+            # )
+
+            self._compute_mask_post_processing_combo = create_widget(
+                label="Post-processing",
+                options={"choices": ["none", "fill_holes", "convex_hull"],
+                        "value": "fill_holes"},
             )
 
-            convex_hull_checkbox_tooltip = (
-                "Returns the convex hull of the mask. Really slow."
+            compute_mask_post_processing_tooltip = (
+                "Post-processing applied to the mask after thresholding.\n"
+                "fill_holes: fills holes in the mask.\n"
+                "convex_hull: returns the convex hull of the mask."
             )
-            convex_hull_container = self._add_tooltip_button_to_container(
-                self._convex_hull_checkbox, convex_hull_checkbox_tooltip
+
+            compute_mask_post_processing_container = self._add_tooltip_button_to_container(
+                self._compute_mask_post_processing_combo,
+                compute_mask_post_processing_tooltip,
+            )
+
+            self._compute_mask_keep_largest_cc_checkbox = create_widget(
+                widget_type="CheckBox",
+                label="Keep largest connected component",
+                options={"value": True},
+            )
+
+            keep_largest_cc_tooltip = (
+                "If checked, only the largest connected component of the mask will be kept."
+            )
+
+            keep_largest_cc_container = self._add_tooltip_button_to_container(
+                self._compute_mask_keep_largest_cc_checkbox,
+                keep_largest_cc_tooltip,
             )
 
             self._registered_image_checkbox = create_widget(
@@ -306,7 +340,8 @@ class TapenadeProcessingWidget(QWidget):
                     compute_mask_method_container,
                     compute_mask_sigma_blur_container,
                     compute_mask_threshold_factor_container,
-                    convex_hull_container,
+                    compute_mask_post_processing_container,
+                    keep_largest_cc_container,
                     registered_image_container,
                 ],
                 labels=False,
@@ -388,6 +423,83 @@ class TapenadeProcessingWidget(QWidget):
                 widgets=[
                     int_norm_sigma_container,
                     int_norm_width_container,
+                ],
+                labels=False,
+            )
+
+            # Segment with StarDist
+            self._segment_stardist_model_path = create_widget(  
+                widget_type="FileEdit",
+                options={"mode": "d"},
+                label="Model path",
+            )
+
+            self._segment_stardist_model_path.native.children()[
+                1
+            ].setPlaceholderText("Path to pretrained model folder")
+
+            self._segment_stardist_default_thresholds_checkbox = create_widget(
+                widget_type="CheckBox",
+                label="Use default thresholds",
+                options={"value": True},
+            )
+
+            default_thresholds_tooltip = (
+                "If checked, the probability threshold and NMS threshold\n"
+                "will be set to the optimized values from the pretrained model."
+            )
+
+            default_thresholds_container = self._add_tooltip_button_to_container(
+                self._segment_stardist_default_thresholds_checkbox,
+                default_thresholds_tooltip,
+            )
+            
+            self._segment_stardist_prob_threshold_slider = create_widget(
+                widget_type="FloatSlider",
+                label="Prob threshold",
+                options={"min": 0, "max": 1, "value": 0.5},
+            )
+
+            prob_threshold_tooltip = (
+                "Threshold above which a pixel from the probability map is\n"   
+                "considered as being a center candidate.\n"
+                "Lower values will result in more objects."
+            )
+
+            self._prob_threshold_container = self._add_tooltip_button_to_container(
+                self._segment_stardist_prob_threshold_slider,
+                prob_threshold_tooltip,
+            )
+            self._prob_threshold_container.enabled = False
+
+            self._segment_stardist_nms_threshold_slider = create_widget(
+                widget_type="FloatSlider",
+                label="NMS threshold",
+                options={"min": 0, "max": 1, "value": 0.4},
+            )
+
+            nms_threshold_tooltip = (
+                "IoU threshold for non-maximum suppression.\n"
+                "Higher values will discard redundant candidates better\n"
+                "but could also remove valid objects that are very close to each other."
+            )
+
+            self._nms_threshold_container = self._add_tooltip_button_to_container(
+                self._segment_stardist_nms_threshold_slider,
+                nms_threshold_tooltip,
+            )
+            self._nms_threshold_container.enabled = False
+
+            self._segment_stardist_default_thresholds_checkbox.changed.connect(
+                self._update_segment_stardist_thresholds
+            )
+
+            self._segment_stardist_container = Container(
+                widgets=[
+                    self._segment_stardist_model_path,
+                    default_thresholds_container,
+                    self._prob_threshold_container,
+                    self._nms_threshold_container,
                 ],
                 labels=False,
             )
@@ -515,6 +627,7 @@ class TapenadeProcessingWidget(QWidget):
                 "remove_labels_outside_of_mask": remove_labels_outside_of_mask,
                 "crop_array_using_mask": crop_array_using_mask,
                 "normalize_intensity": normalize_intensity,
+                "segment_stardist": segment_stardist,
                 "masked_gaussian_smoothing": masked_gaussian_smoothing,
             }
 
@@ -532,6 +645,10 @@ class TapenadeProcessingWidget(QWidget):
                     (
                         "Align layer from mask major axis",
                         self._align_major_axis_container,
+                    ),
+                    (
+                        "Segment with StarDist",
+                        self._segment_stardist_container,
                     ),
                     (
                         "Remove labels outside of mask",
@@ -563,6 +680,10 @@ class TapenadeProcessingWidget(QWidget):
                         self._run_align_major_axis,
                     ),
                     (
+                        "Segment with StarDist",
+                        self._run_segment_stardist,
+                    ),
+                    (
                         "Remove labels outside of mask",
                         self._run_remove_labels_outside_of_mask,
                     ),
@@ -589,6 +710,7 @@ class TapenadeProcessingWidget(QWidget):
                     "mask",
                     "labels",
                 ],
+                "Segment with StarDist": ["image"],
                 "Align layer from mask major axis": [
                     "array",
                     "mask",
@@ -607,7 +729,8 @@ class TapenadeProcessingWidget(QWidget):
                 "crop_array_using_mask": "cropped",
                 "normalize_intensity": "normalized",
                 "masked_gaussian_smoothing": "smoothed",
-                "spectral_filtering": "filtered"
+                "spectral_filtering": "filtered",
+                "segment_stardist": "segmented"
             }
 
         self._run_button = create_widget(
@@ -903,6 +1026,10 @@ class TapenadeProcessingWidget(QWidget):
         self._update_layer_combos()
 
         self._macro_graph = None
+
+    def _update_segment_stardist_thresholds(self, event):
+        self._prob_threshold_container.enabled = not event
+        self._nms_threshold_container.enabled = not event
 
     def _add_tooltip_button_to_container(self, container, tooltip_text):
         button = HoverTooltipButton(tooltip_text)
@@ -1211,7 +1338,8 @@ class TapenadeProcessingWidget(QWidget):
             "method": self._compute_mask_method_combo.value,
             "sigma_blur": self._compute_mask_sigma_blur_slider.value,
             "threshold_factor": self._compute_mask_threshold_factor_slider.value,
-            "compute_convex_hull": self._convex_hull_checkbox.value,
+            "post_processing_method": self._compute_mask_post_processing_combo.value,
+            "keep_largest_cc": self._compute_mask_keep_largest_cc_checkbox.value,
             "registered_image": self._registered_image_checkbox.value,
             "n_jobs": self._n_jobs_slider.value,
         }
@@ -1437,6 +1565,67 @@ class TapenadeProcessingWidget(QWidget):
 
             if self._macro_graph is not None:
                 self._update_graph_widget()
+
+    def _run_segment_stardist(self):
+
+        image_layer, _ = self._assert_basic_layer_properties(
+            self._image_layer_combo.value, ["Image"]
+        )
+
+        model_path = self._segment_stardist_model_path.value
+
+        if model_path == "." or not os.path.exists(model_path):
+            warnings.warn("Please enter a path to the StarDist model")
+            return
+
+        if self._segment_stardist_default_thresholds_checkbox.value:
+            thresholds_dict = None
+        else:
+            thresholds_dict = {
+                "prob": self._segment_stardist_prob_threshold_slider.value,
+                "nms": self._segment_stardist_nms_threshold_slider.value,
+            }
+
+        func_params = {
+            "model_path": model_path,
+            "thresholds_dict": thresholds_dict,
+            "n_jobs": self._n_jobs_slider.value,
+        }
+
+        start_time = time.time()
+        labels = segment_stardist(image_layer.data, **func_params)
+        print(f"StarDist segmentation took {time.time() - start_time} seconds")
+
+        old_name = image_layer.name
+        name = f"{old_name}_{self._adjective_dict['segment_stardist']}"
+        self._viewer.add_labels(
+            labels,
+            name=name,
+            **self._transmissive_labels_layer_properties(image_layer),
+        )
+
+        self._labels_layer_combo.native.setCurrentIndex(
+            self._labels_layer_combo.native.count() - 1
+        )
+
+        if self._is_recording_parameters:
+            input_params_to_layer_names_and_types_dict = {
+                "image": (old_name, "Image"),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("segmented_labels", (name, "Labels"))]
+            )
+            self._recorder.record(
+                function_name="segment_stardist",
+                func_params=func_params,
+                main_input_param_name="image",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+            )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget
+
 
     def _run_align_major_axis(self):
 
@@ -1920,6 +2109,17 @@ class TapenadeProcessingWidget(QWidget):
                 align_array_major_axis_from_files(
                     input_params_to_list_of_tifpaths_dict["mask"],
                     input_params_to_list_of_tifpaths_dict["array"],
+                    output_folder,
+                    compress_params,
+                    func_params,
+                )
+            elif function_name == "segment_stardist":
+                output_id = next(
+                    iter(output_params_to_layer_ids_dict.values())
+                )
+                output_folder = layer_id_to_folder_path_dict[output_id]
+                segment_stardist_from_files(
+                    input_params_to_list_of_tifpaths_dict["image"],
                     output_folder,
                     compress_params,
                     func_params,
