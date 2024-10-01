@@ -40,6 +40,9 @@ from tapenade.preprocessing import (
     crop_array_using_mask_from_files,
     local_image_equalization,
     normalize_intensity,
+    segment_stardist,
+    segment_stardist_from_files,
+    masked_gaussian_smoothing
 )
 from tapenade.preprocessing.segmentation_postprocessing import (
     remove_labels_outside_of_mask,
@@ -82,32 +85,38 @@ class TapenadeProcessingWidget(QWidget):
         self._viewer = viewer
 
         self._array_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Array",
-            annotation="napari.layers.Layer",
             options={"nullable": False},
         )
 
         self._image_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Image",
-            annotation="napari.layers.Image",
             options={"nullable": True},
         )
 
         self._ref_image_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Image (ref)",
-            annotation="napari.layers.Image",
             options={"nullable": True},
         )
 
         self._mask_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Mask",
-            annotation="napari.layers.Image",
+            options={"nullable": True},
+        )
+
+        self._mask_for_volume_layer_combo = create_widget(
+            widget_type="ComboBox",
+            label="Mask (volume)",
             options={"nullable": True},
         )
 
         self._labels_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Labels",
-            annotation="napari.layers.Labels",
             options={"nullable": True},
         )
 
@@ -117,6 +126,7 @@ class TapenadeProcessingWidget(QWidget):
                 self._image_layer_combo,
                 self._ref_image_layer_combo,
                 self._mask_layer_combo,
+                self._mask_for_volume_layer_combo,
                 self._labels_layer_combo,
             ],
             layout="vertical",
@@ -130,6 +140,7 @@ class TapenadeProcessingWidget(QWidget):
         self._image_layer_combo.bind(self._bind_layer_combo)
         self._ref_image_layer_combo.bind(self._bind_layer_combo)
         self._mask_layer_combo.bind(self._bind_layer_combo)
+        self._mask_for_volume_layer_combo.bind(self._bind_layer_combo)
         self._labels_layer_combo.bind(self._bind_layer_combo)
 
         if True:
@@ -255,7 +266,8 @@ class TapenadeProcessingWidget(QWidget):
             )
             compute_mask_threshold_factor_tooltip = (
                 "Multiplicative factor applied to the threshold computed by the chosen method\n"
-                "Usually only if the mask is too inclusive (put factor > 1) or exclusive (put factor < 1)."
+                "If the mask is too inclusive (fewer pixels should be True) set factor < 1\n"
+                "If the mask is too excusive (fewer pixels should be False) (set factor > 1)."
             )
 
             compute_mask_threshold_factor_container = (
@@ -265,17 +277,49 @@ class TapenadeProcessingWidget(QWidget):
                 )
             )
 
-            self._convex_hull_checkbox = create_widget(
-                widget_type="CheckBox",
-                label="Compute convex hull",
-                options={"value": False},
+            # self._convex_hull_checkbox = create_widget(
+            #     widget_type="CheckBox",
+            #     label="Compute convex hull",
+            #     options={"value": False},
+            # )
+
+            # convex_hull_checkbox_tooltip = (
+            #     "Returns the convex hull of the mask. Really slow."
+            # )
+            # convex_hull_container = self._add_tooltip_button_to_container(
+            #     self._convex_hull_checkbox, convex_hull_checkbox_tooltip
+            # )
+
+            self._compute_mask_post_processing_combo = create_widget(
+                label="Post-processing",
+                options={"choices": ["none", "fill_holes", "convex_hull"],
+                        "value": "fill_holes"},
             )
 
-            convex_hull_checkbox_tooltip = (
-                "Returns the convex hull of the mask. Really slow."
+            compute_mask_post_processing_tooltip = (
+                "Post-processing applied to the mask after thresholding.\n"
+                "fill_holes: fills holes in the mask.\n"
+                "convex_hull: returns the convex hull of the mask."
             )
-            convex_hull_container = self._add_tooltip_button_to_container(
-                self._convex_hull_checkbox, convex_hull_checkbox_tooltip
+
+            compute_mask_post_processing_container = self._add_tooltip_button_to_container(
+                self._compute_mask_post_processing_combo,
+                compute_mask_post_processing_tooltip,
+            )
+
+            self._compute_mask_keep_largest_cc_checkbox = create_widget(
+                widget_type="CheckBox",
+                label="Keep largest connected component",
+                options={"value": True},
+            )
+
+            keep_largest_cc_tooltip = (
+                "If checked, only the largest connected component of the mask will be kept."
+            )
+
+            keep_largest_cc_container = self._add_tooltip_button_to_container(
+                self._compute_mask_keep_largest_cc_checkbox,
+                keep_largest_cc_tooltip,
             )
 
             self._registered_image_checkbox = create_widget(
@@ -297,7 +341,8 @@ class TapenadeProcessingWidget(QWidget):
                     compute_mask_method_container,
                     compute_mask_sigma_blur_container,
                     compute_mask_threshold_factor_container,
-                    convex_hull_container,
+                    compute_mask_post_processing_container,
+                    keep_largest_cc_container,
                     registered_image_container,
                 ],
                 labels=False,
@@ -379,6 +424,83 @@ class TapenadeProcessingWidget(QWidget):
                 widgets=[
                     int_norm_sigma_container,
                     int_norm_width_container,
+                ],
+                labels=False,
+            )
+
+            # Segment with StarDist
+            self._segment_stardist_model_path = create_widget(  
+                widget_type="FileEdit",
+                options={"mode": "d"},
+                label="Model path",
+            )
+
+            self._segment_stardist_model_path.native.children()[
+                1
+            ].setPlaceholderText("Path to pretrained model folder")
+
+            self._segment_stardist_default_thresholds_checkbox = create_widget(
+                widget_type="CheckBox",
+                label="Use default thresholds",
+                options={"value": True},
+            )
+
+            default_thresholds_tooltip = (
+                "If checked, the probability threshold and NMS threshold\n"
+                "will be set to the optimized values from the pretrained model."
+            )
+
+            default_thresholds_container = self._add_tooltip_button_to_container(
+                self._segment_stardist_default_thresholds_checkbox,
+                default_thresholds_tooltip,
+            )
+            
+            self._segment_stardist_prob_threshold_slider = create_widget(
+                widget_type="FloatSlider",
+                label="Prob threshold",
+                options={"min": 0, "max": 1, "value": 0.5},
+            )
+
+            prob_threshold_tooltip = (
+                "Threshold above which a pixel from the probability map is\n"   
+                "considered as being a center candidate.\n"
+                "Lower values will result in more objects."
+            )
+
+            self._prob_threshold_container = self._add_tooltip_button_to_container(
+                self._segment_stardist_prob_threshold_slider,
+                prob_threshold_tooltip,
+            )
+            self._prob_threshold_container.enabled = False
+
+            self._segment_stardist_nms_threshold_slider = create_widget(
+                widget_type="FloatSlider",
+                label="NMS threshold",
+                options={"min": 0, "max": 1, "value": 0.4},
+            )
+
+            nms_threshold_tooltip = (
+                "IoU threshold for non-maximum suppression.\n"
+                "Higher values will discard redundant candidates better\n"
+                "but could also remove valid objects that are very close to each other."
+            )
+
+            self._nms_threshold_container = self._add_tooltip_button_to_container(
+                self._segment_stardist_nms_threshold_slider,
+                nms_threshold_tooltip,
+            )
+            self._nms_threshold_container.enabled = False
+
+            self._segment_stardist_default_thresholds_checkbox.changed.connect(
+                self._update_segment_stardist_thresholds
+            )
+
+            self._segment_stardist_container = Container(
+                widgets=[
+                    self._segment_stardist_model_path,
+                    default_thresholds_container,
+                    self._prob_threshold_container,
+                    self._nms_threshold_container,
                 ],
                 labels=False,
             )
@@ -473,12 +595,27 @@ class TapenadeProcessingWidget(QWidget):
             )
 
             # Masked gaussian smoothing
+            self._masked_smoothing_sigma_slider = create_widget(
+                widget_type="FloatSlider",
+                label="Sigma",
+                options={"min": 1, "max": 50, "value": 1},
+            )
+
+            masked_smoothing_sigma_tooltip = (
+                "Standard deviation of the Gaussian kernel used for smoothing.\n"
+                "Defines the spatial scale of the result."
+            )
+
+            masked_smoothing_sigma_container = self._add_tooltip_button_to_container(
+                self._masked_smoothing_sigma_slider, masked_smoothing_sigma_tooltip
+            )
+
             self._masked_gaussian_smoothing_container = Container(
                 widgets=[
+                    Label(value="Currently, the function is only implemented"),
+                    Label(value="for dense smoothing of images."),
                     EmptyWidget(),
-                    Label(value="Not implemented yet."),
-                    Label(value="Under construction."),
-                    EmptyWidget(),
+                    masked_smoothing_sigma_container,
                 ],
                 labels=False,
             )
@@ -491,6 +628,8 @@ class TapenadeProcessingWidget(QWidget):
                 "remove_labels_outside_of_mask": remove_labels_outside_of_mask,
                 "crop_array_using_mask": crop_array_using_mask,
                 "normalize_intensity": normalize_intensity,
+                "segment_stardist": segment_stardist,
+                "masked_gaussian_smoothing": masked_gaussian_smoothing,
             }
 
             self._funcs_combobox_text_to_containers = OrderedDict(
@@ -507,6 +646,10 @@ class TapenadeProcessingWidget(QWidget):
                     (
                         "Align layer from mask major axis",
                         self._align_major_axis_container,
+                    ),
+                    (
+                        "Segment with StarDist",
+                        self._segment_stardist_container,
                     ),
                     (
                         "Remove labels outside of mask",
@@ -538,6 +681,10 @@ class TapenadeProcessingWidget(QWidget):
                         self._run_align_major_axis,
                     ),
                     (
+                        "Segment with StarDist",
+                        self._run_segment_stardist,
+                    ),
+                    (
                         "Remove labels outside of mask",
                         self._run_remove_labels_outside_of_mask,
                     ),
@@ -547,7 +694,8 @@ class TapenadeProcessingWidget(QWidget):
                     ),
                     (
                         "Masked gaussian smoothing",
-                        None,
+                        # None
+                        self._run_masked_gaussian_smoothing,
                     ),
                 ]
             )
@@ -563,13 +711,14 @@ class TapenadeProcessingWidget(QWidget):
                     "mask",
                     "labels",
                 ],
+                "Segment with StarDist": ["image"],
                 "Align layer from mask major axis": [
                     "array",
                     "mask",
                 ],
                 "Remove labels outside of mask": ["mask", "labels"],
                 "Crop layers using mask": ["array", "mask"],
-                "Masked gaussian smoothing": [],
+                "Masked gaussian smoothing": ["image", "mask", "mask_for_volume"],
             }
 
             self._adjective_dict = {
@@ -582,6 +731,7 @@ class TapenadeProcessingWidget(QWidget):
                 "normalize_intensity": "normalized",
                 "masked_gaussian_smoothing": "smoothed",
                 "spectral_filtering": "filtered",
+                "segment_stardist": "segmented"
             }
 
         self._run_button = create_widget(
@@ -669,11 +819,11 @@ class TapenadeProcessingWidget(QWidget):
 
         n_jobs_tooltip = (
             "Number of parallel jobs to run.\n"
-            "Increasing this number will speed up the computation,"
+            "Increasing this number will speed up the computation,\n"
             "but can dramatically increase the amount of memory used.\n"
-            'When running functions in the "Functions" tab, parallel computation'
+            'When running functions in the "Functions" tab, parallel computation\n'
             "is triggered if the input arrays are detected as being temporal.\n"
-            'When running a macro in the "Macro recording" tab, each frame is'
+            'When running a macro in the "Macro recording" tab, each frame is\n'
             "processed in parallel."
         )
 
@@ -683,7 +833,7 @@ class TapenadeProcessingWidget(QWidget):
 
         self._function_tab_container = Container(
             widgets=[
-                self._n_jobs_container,
+                # self._n_jobs_container,
                 label_and_update_container,
                 layer_combos_container,
                 # update_layers_combos_button,
@@ -824,7 +974,8 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         self._overwrite_tooltip = (
-            "If checked, the new layers will overwrite the previous ones.\n"
+            "If checked, a newly computed layer will overwrite the one\n" 
+            "of the same type that was used as input.\n"
             "This can be useful to save memory."
         )
 
@@ -868,6 +1019,7 @@ class TapenadeProcessingWidget(QWidget):
         self.setLayout(QVBoxLayout())
 
         self.layout().addWidget(self._header_container.native)
+        self.layout().addWidget(self._n_jobs_container.native)
         self.layout().addWidget(tabs)
         self.layout().addStretch(1)
 
@@ -875,6 +1027,10 @@ class TapenadeProcessingWidget(QWidget):
         self._update_layer_combos()
 
         self._macro_graph = None
+
+    def _update_segment_stardist_thresholds(self, event):
+        self._prob_threshold_container.enabled = not event
+        self._nms_threshold_container.enabled = not event
 
     def _add_tooltip_button_to_container(self, container, tooltip_text):
         button = HoverTooltipButton(tooltip_text)
@@ -923,6 +1079,7 @@ class TapenadeProcessingWidget(QWidget):
 
     def _update_layer_combos(self):
 
+        ### 1. Clear all combos but keep the previous choice if possible
         previous_texts = []
 
         # clear all combos and add None
@@ -931,15 +1088,17 @@ class TapenadeProcessingWidget(QWidget):
             self._image_layer_combo,
             self._ref_image_layer_combo,
             self._mask_layer_combo,
+            self._mask_for_volume_layer_combo,
             self._labels_layer_combo,
             # self._tracks_layer_combo
         ):
             previous_texts.append(c.native.currentText())
             c.native.clear()
             # check if combo is nullable
-            if c.native.property("nullable"):
+            if c._nullable:
                 c.native.addItem(None)
 
+        ### 2. Add layers to combos
         # add layers to compatible combos
         for layer in self._viewer.layers:
             if (
@@ -951,6 +1110,8 @@ class TapenadeProcessingWidget(QWidget):
                 if layer.data.dtype == bool:
                     if self._mask_layer_combo.enabled:
                         self._mask_layer_combo.native.addItem(layer.name)
+                    if self._mask_for_volume_layer_combo.enabled:
+                        self._mask_for_volume_layer_combo.native.addItem(layer.name)
                 else:
                     if self._image_layer_combo.enabled:
                         self._image_layer_combo.native.addItem(layer.name)
@@ -964,13 +1125,14 @@ class TapenadeProcessingWidget(QWidget):
             # elif isinstance(layer, Tracks):
             #     self._tracks_layer_combo.addItem(layer.name)
 
-        # reset combo current choice to previous text if possible
+        ### 3. Reset combo current choice to previous text if possible
         for index_c, c in enumerate(
             [
                 self._array_layer_combo,
                 self._image_layer_combo,
                 self._ref_image_layer_combo,
                 self._mask_layer_combo,
+                self._mask_for_volume_layer_combo,
                 self._labels_layer_combo,
                 # self._tracks_layer_combo
             ]
@@ -1041,7 +1203,7 @@ class TapenadeProcessingWidget(QWidget):
 
         list_layers_enabled = self._funcs_combobox_text_to_visible_layers[name]
 
-        for layer_type in ["array", "image", "ref_image", "mask", "labels"]:
+        for layer_type in ["array", "image", "ref_image", "mask", "mask_for_volume", "labels"]:
             combo = getattr(self, f"_{layer_type}_layer_combo")
             # combo.enabled = layer_type in list_layers_enabled
             combo.visible = layer_type in list_layers_enabled
@@ -1179,7 +1341,8 @@ class TapenadeProcessingWidget(QWidget):
             "method": self._compute_mask_method_combo.value,
             "sigma_blur": self._compute_mask_sigma_blur_slider.value,
             "threshold_factor": self._compute_mask_threshold_factor_slider.value,
-            "compute_convex_hull": self._convex_hull_checkbox.value,
+            "post_processing_method": self._compute_mask_post_processing_combo.value,
+            "keep_largest_cc": self._compute_mask_keep_largest_cc_checkbox.value,
             "registered_image": self._registered_image_checkbox.value,
             "n_jobs": self._n_jobs_slider.value,
         }
@@ -1406,6 +1569,67 @@ class TapenadeProcessingWidget(QWidget):
             if self._macro_graph is not None:
                 self._update_graph_widget()
 
+    def _run_segment_stardist(self):
+
+        image_layer, _ = self._assert_basic_layer_properties(
+            self._image_layer_combo.value, ["Image"]
+        )
+
+        model_path = self._segment_stardist_model_path.value
+
+        if model_path == "." or not os.path.exists(model_path):
+            warnings.warn("Please enter a path to the StarDist model")
+            return
+
+        if self._segment_stardist_default_thresholds_checkbox.value:
+            thresholds_dict = None
+        else:
+            thresholds_dict = {
+                "prob": self._segment_stardist_prob_threshold_slider.value,
+                "nms": self._segment_stardist_nms_threshold_slider.value,
+            }
+
+        func_params = {
+            "model_path": model_path,
+            "thresholds_dict": thresholds_dict,
+            "n_jobs": self._n_jobs_slider.value,
+        }
+
+        start_time = time.time()
+        labels = segment_stardist(image_layer.data, **func_params)
+        print(f"StarDist segmentation took {time.time() - start_time} seconds")
+
+        old_name = image_layer.name
+        name = f"{old_name}_{self._adjective_dict['segment_stardist']}"
+        self._viewer.add_labels(
+            labels,
+            name=name,
+            **self._transmissive_labels_layer_properties(image_layer),
+        )
+
+        self._labels_layer_combo.native.setCurrentIndex(
+            self._labels_layer_combo.native.count() - 1
+        )
+
+        if self._is_recording_parameters:
+            input_params_to_layer_names_and_types_dict = {
+                "image": (old_name, "Image"),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("segmented_labels", (name, "Labels"))]
+            )
+            self._recorder.record(
+                function_name="segment_stardist",
+                func_params=func_params,
+                main_input_param_name="image",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+            )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget
+
+
     def _run_align_major_axis(self):
 
         mask_layer, _ = self._assert_basic_layer_properties(
@@ -1619,6 +1843,96 @@ class TapenadeProcessingWidget(QWidget):
             if self._macro_graph is not None:
                 self._update_graph_widget()
 
+    def _run_masked_gaussian_smoothing(self):
+
+        layer, _ = self._assert_basic_layer_properties(
+            self._image_layer_combo.value, ["Image"]
+        )
+
+        mask_available = self._mask_layer_combo.value is not None
+
+        if mask_available:
+            mask_layer, _ = self._assert_basic_layer_properties(
+                self._mask_layer_combo.value, ["Image"]
+            )
+            mask_layer_data = mask_layer.data
+            assert (
+                mask_layer_data.shape == layer.data.shape
+            ), "Mask and data must have the same shape"
+        else:
+            mask_layer_data = None
+
+        mask_for_volume_available = self._mask_for_volume_layer_combo.value is not None
+
+        if mask_for_volume_available:
+            mask_for_volume_layer, _ = self._assert_basic_layer_properties(
+                self._mask_for_volume_layer_combo.value, ["Image"]
+            )
+            mask_for_volume_layer_data = mask_for_volume_layer.data
+            assert (
+                mask_for_volume_layer_data.shape == layer.data.shape
+            ), "Mask (volume) and data must have the same shape"   
+        else:
+            mask_for_volume_layer_data = None
+
+        sigma = self._masked_smoothing_sigma_slider.value
+
+        func_params = {
+            "sigmas": sigma,
+            "n_jobs": self._n_jobs_slider.value,
+        }
+
+        start_time = time.time()
+        smoothed_array = masked_gaussian_smoothing(
+            layer.data,
+            mask=mask_layer_data,
+            mask_for_volume=mask_for_volume_layer_data,
+            **func_params,
+        )
+        print(f"Smoothing took {time.time() - start_time} seconds")
+
+        name = f"{layer.name}_{self._adjective_dict['masked_gaussian_smoothing']}"
+
+        if self._overwrite_checkbox.value:
+            layer.data = smoothed_array
+            layer.name = name
+
+        else:
+            self._viewer.add_image(
+                smoothed_array,
+                name=name,
+                **self._transmissive_image_layer_properties(layer),
+            )
+            self._image_layer_combo.native.setCurrentIndex(
+                self._image_layer_combo.native.count() - 1
+            )
+
+        if self._is_recording_parameters:
+            input_params_to_layer_names_and_types_dict = {
+                "image": (layer.name, "Image"),
+                "mask": (
+                    mask_layer.name if mask_available else None,
+                    "Mask",
+                ),
+                "mask_for_volume": (
+                    mask_for_volume_layer.name if mask_for_volume_available else None,
+                    "Mask",
+                ),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("smoothed_image", (name, "Image"))]
+            )
+            self._recorder.record(
+                function_name="masked_gaussian_smoothing",
+                func_params=func_params,
+                main_input_param_name="image",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+            )
+
+            if self._macro_graph is not None:
+                self._update_graph_widget()
+
     def _reset_macro_widgets(self):
         self._macro_widgets = {}
         self._macro_tab_container.clear()
@@ -1678,7 +1992,6 @@ class TapenadeProcessingWidget(QWidget):
                     self._run_macro_save_path,
                     self._run_macro_compress_checkbox,
                     self._run_macro_save_all_checkbox,
-                    self._n_jobs_container,
                     self._run_macro_button,
                 ]
             )
@@ -1799,6 +2112,17 @@ class TapenadeProcessingWidget(QWidget):
                 align_array_major_axis_from_files(
                     input_params_to_list_of_tifpaths_dict["mask"],
                     input_params_to_list_of_tifpaths_dict["array"],
+                    output_folder,
+                    compress_params,
+                    func_params,
+                )
+            elif function_name == "segment_stardist":
+                output_id = next(
+                    iter(output_params_to_layer_ids_dict.values())
+                )
+                output_folder = layer_id_to_folder_path_dict[output_id]
+                segment_stardist_from_files(
+                    input_params_to_list_of_tifpaths_dict["image"],
                     output_folder,
                     compress_params,
                     func_params,
