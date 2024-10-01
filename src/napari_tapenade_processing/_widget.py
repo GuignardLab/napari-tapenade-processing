@@ -39,10 +39,10 @@ from tapenade.preprocessing import (
     crop_array_using_mask,
     crop_array_using_mask_from_files,
     local_image_equalization,
+    masked_gaussian_smoothing,
     normalize_intensity,
     segment_stardist,
     segment_stardist_from_files,
-    masked_gaussian_smoothing
 )
 from tapenade.preprocessing.segmentation_postprocessing import (
     remove_labels_outside_of_mask,
@@ -292,8 +292,10 @@ class TapenadeProcessingWidget(QWidget):
 
             self._compute_mask_post_processing_combo = create_widget(
                 label="Post-processing",
-                options={"choices": ["none", "fill_holes", "convex_hull"],
-                        "value": "fill_holes"},
+                options={
+                    "choices": ["none", "fill_holes", "convex_hull"],
+                    "value": "fill_holes",
+                },
             )
 
             compute_mask_post_processing_tooltip = (
@@ -302,9 +304,11 @@ class TapenadeProcessingWidget(QWidget):
                 "convex_hull: returns the convex hull of the mask."
             )
 
-            compute_mask_post_processing_container = self._add_tooltip_button_to_container(
-                self._compute_mask_post_processing_combo,
-                compute_mask_post_processing_tooltip,
+            compute_mask_post_processing_container = (
+                self._add_tooltip_button_to_container(
+                    self._compute_mask_post_processing_combo,
+                    compute_mask_post_processing_tooltip,
+                )
             )
 
             self._compute_mask_keep_largest_cc_checkbox = create_widget(
@@ -313,9 +317,7 @@ class TapenadeProcessingWidget(QWidget):
                 options={"value": True},
             )
 
-            keep_largest_cc_tooltip = (
-                "If checked, only the largest connected component of the mask will be kept."
-            )
+            keep_largest_cc_tooltip = "If checked, only the largest connected component of the mask will be kept."
 
             keep_largest_cc_container = self._add_tooltip_button_to_container(
                 self._compute_mask_keep_largest_cc_checkbox,
@@ -429,7 +431,7 @@ class TapenadeProcessingWidget(QWidget):
             )
 
             # Segment with StarDist
-            self._segment_stardist_model_path = create_widget(  
+            self._segment_stardist_model_path = create_widget(
                 widget_type="FileEdit",
                 options={"mode": "d"},
                 label="Model path",
@@ -450,11 +452,13 @@ class TapenadeProcessingWidget(QWidget):
                 "will be set to the optimized values from the pretrained model."
             )
 
-            default_thresholds_container = self._add_tooltip_button_to_container(
-                self._segment_stardist_default_thresholds_checkbox,
-                default_thresholds_tooltip,
+            default_thresholds_container = (
+                self._add_tooltip_button_to_container(
+                    self._segment_stardist_default_thresholds_checkbox,
+                    default_thresholds_tooltip,
+                )
             )
-            
+
             self._segment_stardist_prob_threshold_slider = create_widget(
                 widget_type="FloatSlider",
                 label="Prob threshold",
@@ -462,14 +466,16 @@ class TapenadeProcessingWidget(QWidget):
             )
 
             prob_threshold_tooltip = (
-                "Threshold above which a pixel from the probability map is\n"   
+                "Threshold above which a pixel from the probability map is\n"
                 "considered as being a center candidate.\n"
                 "Lower values will result in more objects."
             )
 
-            self._prob_threshold_container = self._add_tooltip_button_to_container(
-                self._segment_stardist_prob_threshold_slider,
-                prob_threshold_tooltip,
+            self._prob_threshold_container = (
+                self._add_tooltip_button_to_container(
+                    self._segment_stardist_prob_threshold_slider,
+                    prob_threshold_tooltip,
+                )
             )
             self._prob_threshold_container.enabled = False
 
@@ -485,9 +491,11 @@ class TapenadeProcessingWidget(QWidget):
                 "but could also remove valid objects that are very close to each other."
             )
 
-            self._nms_threshold_container = self._add_tooltip_button_to_container(
-                self._segment_stardist_nms_threshold_slider,
-                nms_threshold_tooltip,
+            self._nms_threshold_container = (
+                self._add_tooltip_button_to_container(
+                    self._segment_stardist_nms_threshold_slider,
+                    nms_threshold_tooltip,
+                )
             )
             self._nms_threshold_container.enabled = False
 
@@ -606,8 +614,11 @@ class TapenadeProcessingWidget(QWidget):
                 "Defines the spatial scale of the result."
             )
 
-            masked_smoothing_sigma_container = self._add_tooltip_button_to_container(
-                self._masked_smoothing_sigma_slider, masked_smoothing_sigma_tooltip
+            masked_smoothing_sigma_container = (
+                self._add_tooltip_button_to_container(
+                    self._masked_smoothing_sigma_slider,
+                    masked_smoothing_sigma_tooltip,
+                )
             )
 
             self._masked_gaussian_smoothing_container = Container(
@@ -636,7 +647,6 @@ class TapenadeProcessingWidget(QWidget):
                 [
                     ("Change layer voxelsize", self._rescale_container),
                     ("Spectral filtering", self._spectral_filtering_container),
-                    
                     ("Compute mask from image", self._compute_mask_container),
                     (
                         "Local image equalization",
@@ -718,7 +728,11 @@ class TapenadeProcessingWidget(QWidget):
                 ],
                 "Remove labels outside of mask": ["mask", "labels"],
                 "Crop layers using mask": ["array", "mask"],
-                "Masked gaussian smoothing": ["image", "mask", "mask_for_volume"],
+                "Masked gaussian smoothing": [
+                    "image",
+                    "mask",
+                    "mask_for_volume",
+                ],
             }
 
             self._adjective_dict = {
@@ -731,7 +745,7 @@ class TapenadeProcessingWidget(QWidget):
                 "normalize_intensity": "normalized",
                 "masked_gaussian_smoothing": "smoothed",
                 "spectral_filtering": "filtered",
-                "segment_stardist": "segmented"
+                "segment_stardist": "segmented",
             }
 
         self._run_button = create_widget(
@@ -974,7 +988,7 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         self._overwrite_tooltip = (
-            "If checked, a newly computed layer will overwrite the one\n" 
+            "If checked, a newly computed layer will overwrite the one\n"
             "of the same type that was used as input.\n"
             "This can be useful to save memory."
         )
@@ -1111,7 +1125,9 @@ class TapenadeProcessingWidget(QWidget):
                     if self._mask_layer_combo.enabled:
                         self._mask_layer_combo.native.addItem(layer.name)
                     if self._mask_for_volume_layer_combo.enabled:
-                        self._mask_for_volume_layer_combo.native.addItem(layer.name)
+                        self._mask_for_volume_layer_combo.native.addItem(
+                            layer.name
+                        )
                 else:
                     if self._image_layer_combo.enabled:
                         self._image_layer_combo.native.addItem(layer.name)
@@ -1203,7 +1219,14 @@ class TapenadeProcessingWidget(QWidget):
 
         list_layers_enabled = self._funcs_combobox_text_to_visible_layers[name]
 
-        for layer_type in ["array", "image", "ref_image", "mask", "mask_for_volume", "labels"]:
+        for layer_type in [
+            "array",
+            "image",
+            "ref_image",
+            "mask",
+            "mask_for_volume",
+            "labels",
+        ]:
             combo = getattr(self, f"_{layer_type}_layer_combo")
             # combo.enabled = layer_type in list_layers_enabled
             combo.visible = layer_type in list_layers_enabled
@@ -1629,7 +1652,6 @@ class TapenadeProcessingWidget(QWidget):
             if self._macro_graph is not None:
                 self._update_graph_widget
 
-
     def _run_align_major_axis(self):
 
         mask_layer, _ = self._assert_basic_layer_properties(
@@ -1862,7 +1884,9 @@ class TapenadeProcessingWidget(QWidget):
         else:
             mask_layer_data = None
 
-        mask_for_volume_available = self._mask_for_volume_layer_combo.value is not None
+        mask_for_volume_available = (
+            self._mask_for_volume_layer_combo.value is not None
+        )
 
         if mask_for_volume_available:
             mask_for_volume_layer, _ = self._assert_basic_layer_properties(
@@ -1871,7 +1895,7 @@ class TapenadeProcessingWidget(QWidget):
             mask_for_volume_layer_data = mask_for_volume_layer.data
             assert (
                 mask_for_volume_layer_data.shape == layer.data.shape
-            ), "Mask (volume) and data must have the same shape"   
+            ), "Mask (volume) and data must have the same shape"
         else:
             mask_for_volume_layer_data = None
 
@@ -1891,7 +1915,9 @@ class TapenadeProcessingWidget(QWidget):
         )
         print(f"Smoothing took {time.time() - start_time} seconds")
 
-        name = f"{layer.name}_{self._adjective_dict['masked_gaussian_smoothing']}"
+        name = (
+            f"{layer.name}_{self._adjective_dict['masked_gaussian_smoothing']}"
+        )
 
         if self._overwrite_checkbox.value:
             layer.data = smoothed_array
@@ -1915,7 +1941,11 @@ class TapenadeProcessingWidget(QWidget):
                     "Mask",
                 ),
                 "mask_for_volume": (
-                    mask_for_volume_layer.name if mask_for_volume_available else None,
+                    (
+                        mask_for_volume_layer.name
+                        if mask_for_volume_available
+                        else None
+                    ),
                     "Mask",
                 ),
             }
