@@ -1,6 +1,6 @@
 # :herb: napari-tapenade-processing
 
-<img src="https://github.com/GuignardLab/tapenade/blob/Packaging/imgs/tapenade3.png" width="100">
+<img src="https://github.com/GuignardLab/tapenade/blob/main/imgs/tapenade3.png" width="100">
 
 A collection of methods to process images of deep 3D/3D+time tissues in Napari.
 
