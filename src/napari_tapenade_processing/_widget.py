@@ -266,7 +266,8 @@ class TapenadeProcessingWidget(QWidget):
             )
             compute_mask_threshold_factor_tooltip = (
                 "Multiplicative factor applied to the threshold computed by the chosen method\n"
-                "Usually only if the mask is too inclusive (put factor > 1) or exclusive (put factor < 1)."
+                "If the mask is too inclusive (fewer pixels should be True) set factor < 1\n"
+                "If the mask is too excusive (fewer pixels should be False) (set factor > 1)."
             )
 
             compute_mask_threshold_factor_container = (
