@@ -40,7 +40,7 @@ from tapenade.preprocessing import (
     crop_array_using_mask_from_files,
     local_image_equalization,
     normalize_intensity,
-    transpose_and_split_stack,
+    reorganize_array_dimension,
 )
 from tapenade.preprocessing.segmentation_postprocessing import (
     remove_labels_outside_of_mask,
@@ -204,97 +204,73 @@ class TapenadeProcessingWidget(QWidget):
                 labels=False,
             )
 
-        #  Organize hyperstack and split channels
 
-            dimensions = viewer.layers.selection.active.data.shape #TZCYX
-            dimensions_str = [str(i) for i in dimensions] + ['1']
-            print(dimensions_str)
-            # printed in the order TCZYX
-            if len(dimensions) == 2: #YX
-                default_dimensions = ['1','1', '1',dimensions_str[0], dimensions_str[1]]
-            elif len(dimensions) == 3: #ZYX
-                default_dimensions = ['1', dimensions_str[0],'1', dimensions_str[1], dimensions_str[2]]
-            elif len(dimensions) == 4: #CZYX #
-                default_dimensions = ['1',dimensions_str[1],dimensions_str[0], dimensions_str[2], dimensions_str[3]]
-                # default_dimensions = [dimensions_str[0], '1', dimensions_str[1], dimensions_str[2], dimensions_str[3]] # if you rather have time and no channel, uncomment here (TZYX)
-            elif len(dimensions) == 5: #CTZYX
-                default_dimensions = [dimensions_str[0], dimensions_str[2], dimensions_str[1], dimensions_str[3], dimensions_str[4]]
-            else: 
-                default_dimensions = ['1','1', '1', '1', '1']
+            self._hyperstack_nb_timepoints_combobox = create_widget(
+                widget_type="ComboBox",
+            label = 'Number of timepoints :')
 
-            print('default dim',default_dimensions)
-            print('choices :',dimensions_str)
-
-
-        
-            self._select_nb_timepoints_container = create_widget(
-            label = 'Number of timepoints :',
-            options={"choices": dimensions_str, "value": default_dimensions[0]}, 
-            ) 
             select__nb_timepoints_tooltip = (
                 "Number of timepoints.\n"
             )
             select_nb_timepoints_container = (
                 self._add_tooltip_button_to_container(
-                    self._select_nb_timepoints_container,
+                    self._hyperstack_nb_timepoints_combobox,
                     select__nb_timepoints_tooltip,
                 )
             )
 
 
-            self._select__nb_channels_container = create_widget(
-            label = 'Number of channels :',
-            options={"choices": dimensions_str, "value": default_dimensions[1]}, 
+            self._hyperstack_nb_channels_combobox = create_widget(
+                widget_type="ComboBox",
+            label = 'Number of channels :'
             ) 
             select__nb_channels_tooltip = (
                 "Number of channels.\n"
             )
             select_nb_channels_container = (
                 self._add_tooltip_button_to_container(
-                    self._select__nb_channels_container,
+                    self._hyperstack_nb_channels_combobox,
                     select__nb_channels_tooltip,
                 )
             )
 
-            self._select_depth_container = create_widget(
-            label = 'Depth :',
-            options={"choices": dimensions_str, "value": default_dimensions[2]}, 
-            ) 
+            self._hyperstack_depth_combobox = create_widget(
+                widget_type="ComboBox",
+            label = 'Depth :')
             select_depth_tooltip = (
                 "depth.\n"
             )
             select_depth_container = (
                 self._add_tooltip_button_to_container(
-                    self._select_depth_container,
+                    self._hyperstack_depth_combobox,
                     select_depth_tooltip,
                 )
             )
 
-            self._select_Y_container = create_widget(
-            label = 'Y :',
-            options={"choices": dimensions_str, "value": default_dimensions[3]}, 
+            self._hyperstack_Y_combobox = create_widget(
+                widget_type="ComboBox",
+            label = 'Y :'
             ) 
             select_Y_tooltip = (
                 "Y.\n"
             )
             select_Y_container = (
                 self._add_tooltip_button_to_container(
-                    self._select_Y_container,
+                    self._hyperstack_Y_combobox,
                     select_Y_tooltip,
                 )
             )
 
-
-            self._select_X_container = create_widget(
-            label = 'X :',
-            options={"choices": dimensions_str, "value": default_dimensions[4]}, 
+            self._hyperstack_X_combobox = create_widget(
+            widget_type="ComboBox",
+            label = 'X :'
             ) 
             select_X_tooltip = (
                 "X.\n"
             )
             select_X_container = (
                 self._add_tooltip_button_to_container(
-                    self._select_X_container,
+                    self._hyperstack_X_combobox,
                     select_X_tooltip,
                 )
             )
@@ -314,7 +290,7 @@ class TapenadeProcessingWidget(QWidget):
             #     )
             # )
 
-            self._separate_channels_checkbox = create_widget(
+            self._hyperstack_separate_channels_checkbox = create_widget(
                 widget_type="CheckBox",
                 options={"value": False},
                 label="Separate channels",
@@ -325,12 +301,12 @@ class TapenadeProcessingWidget(QWidget):
             
             separate_channels_container = (
                 self._add_tooltip_button_to_container(
-                    self._separate_channels_checkbox,
+                    self._hyperstack_separate_channels_checkbox,
                     separate_channels_checkbox_tooltip,
                 )
             )
 
-            self._keep_original_image_checkbox = create_widget(
+            self._hyperstack_keep_original_image_checkbox = create_widget(
                 widget_type="CheckBox",
                 options={"value": False},
                 label="Keep original image",
@@ -339,9 +315,12 @@ class TapenadeProcessingWidget(QWidget):
                 "If unclicked, the original image will be deleted and only the separated channels will be plot.\n"
             )
             
+            # self._array_layer_combo.changed.connect(self._update_layer_combos)
+
+            self._array_layer_combo.native.currentIndexChanged.connect(self._update_hyperstack_comboboxes)
             keep_original_image_container = (
                 self._add_tooltip_button_to_container(
-                    self._keep_original_image_checkbox,
+                    self._hyperstack_keep_original_image_checkbox,
                     keep_original_image_checkbox_tooltip,
                 )
             )
@@ -639,7 +618,7 @@ class TapenadeProcessingWidget(QWidget):
             )
 
             self._func_name_to_func = {
-                "split_multichannel": transpose_and_split_stack,
+                "reorganize_array_dimension": reorganize_array_dimension,
                 "change_array_pixelsize": change_array_pixelsize,
                 "compute_mask": compute_mask,
                 "local_image_equalization": local_image_equalization,
@@ -1325,57 +1304,57 @@ class TapenadeProcessingWidget(QWidget):
                 self._update_graph_widget()
 
     def _run_organize_hyperstack(self):
-            
-            layer, _ = self._assert_basic_layer_properties(
-                self._image_layer_combo.value, ["Image"]
+
+        layer, _ = self._assert_basic_layer_properties(
+            self._image_layer_combo.value, ["Image"]
+        )
+        func_params = {
+        "nb_channels": self._hyperstack_nb_channels_combobox.value,
+        "nb_depth": self._hyperstack_depth_combobox.value,
+        "nb_Y": self._hyperstack_Y_combobox.value,
+        "nb_X": self._hyperstack_X_combobox.value,
+        "nb_timepoints" : self._hyperstack_nb_timepoints_combobox.value,
+        "bool_seperate_channels": self._hyperstack_separate_channels_checkbox.value,
+        "shape_as_string" : 'None'
+    }
+        
+        shape = ([str(i) for i in layer.data.shape])
+        #We compare the actual shape of the image with the selected numbers of dimensions, it has to match, but the user selected 'None' (0, 1 or 2 times) so we add 'None' to the shape of the image
+        # (very dirty solution)
+        if len(shape) == 4: 
+            shape.append('None')
+        if len(shape) == 3:
+            shape.append('None')
+            shape.append('None')
+        c = self._hyperstack_nb_channels_combobox.value
+        z = self._hyperstack_depth_combobox.value
+        y = self._hyperstack_Y_combobox.value
+        x = self._hyperstack_X_combobox.value
+        t = self._hyperstack_nb_timepoints_combobox.value
+        selected_dims = [str(i) for i in [c,z,y,x,t]]
+        if not np.all(np.sort(selected_dims)== np.sort(shape)): #if dimensions do not match, e.g if the same dim is selected 2 times
+            msg = "Dimensions selected do not match the shape of the image"
+            print(np.sort(selected_dims), np.sort(shape))
+            napari.utils.notifications.show_warning(msg)
+            raise ValueError(msg)
+
+        start_time = time.time()
+        result_array = reorganize_array_dimension(layer.data, **func_params)
+        # if the user chose to remove original image
+        if self._hyperstack_keep_original_image_checkbox.value is False :
+            print('removing original image')
+            self._viewer.layers.remove(layer)
+
+        for index, im in enumerate(result_array): #adding all image from the output list of function transpose_and_split_stack
+            name = f"{layer.name}_{index}"
+            self._viewer.add_image(
+                im,
+                name=name,
+                **self._transmissive_image_layer_properties(layer),
             )
-            func_params = {
-            "nb_channels": self._select__nb_channels_container.value,
-            "nb_depth": self._select_depth_container.value,
-            "nb_Y": self._select_Y_container.value,
-            "nb_X": self._select_X_container.value,
-            "nb_timepoints" : self._select_nb_timepoints_container.value,
-            "bool_seperate_channels": self._separate_channels_checkbox.value,
-        }
+
             
-            shape = ([str(i) for i in layer.data.shape])
-            #We compare the actual shape of the image with the selected numbers of dimensions, it has to match, but the user selected 'None' (0, 1 or 2 times) so we add 'None' to the shape of the image
-            # (very dirty solution)
-            if len(shape) == 4: 
-                shape.append('1')
-            if len(shape) == 3:
-                shape.append('1')
-                shape.append('1')
-            c = self._select__nb_channels_container.value
-            z = self._select_depth_container.value
-            y = self._select_Y_container.value
-            x = self._select_X_container.value
-            t = self._select_nb_timepoints_container.value
-            selected_dims = [str(i) for i in [c,z,y,x,t]]
-            if not np.all(np.sort(selected_dims)== np.sort(shape)): #if dimensions do not match, e.g if the same dim is selected 2 times
-                msg = "Dimensions selected do not match the shape of the image"
-                print(np.sort(selected_dims), np.sort(shape))
-                napari.utils.notifications.show_warning(msg)
-                raise ValueError(msg)
-
-            start_time = time.time()
-            result_array = transpose_and_split_stack(layer.data, **func_params)
-    
-            # if the user chose to remove original image
-            if self._keep_original_image_checkbox.value is False :
-                self._viewer.layers.remove(layer)
-
-            for index, im in enumerate(result_array): #adding all image from the output list of function transpose_and_split_stack
-                name = f"{layer.name}_{index}"
-                print(im.shape)
-                self._viewer.add_image(
-                    im,
-                    name=name,
-                    **self._transmissive_image_layer_properties(layer),
-                )
-
-                
-            print(f"Splitting channels took {time.time() - start_time} seconds")
+        print(f"Hyperstack reorganization took {time.time() - start_time} seconds")
 
     def _run_compute_mask(self):
 
@@ -1685,6 +1664,34 @@ class TapenadeProcessingWidget(QWidget):
             if self._macro_graph is not None:
                 self._update_graph_widget()
 
+    def _update_hyperstack_comboboxes(self, event):
+
+        layer, _ = self._assert_basic_layer_properties(
+        self._image_layer_combo.value, ["Image"]
+    )
+        dimensions_str = [str(i) for i in layer.data.shape]+['None']
+        if layer.data.ndim == 2: #YX
+            default_dimensions = ['None','None', 'None',dimensions_str[0], dimensions_str[1]]
+        elif layer.data.ndim == 3: #ZYX
+            default_dimensions = ['None', dimensions_str[0],'None', dimensions_str[1], dimensions_str[2]]
+        elif layer.data.ndim == 4: #CZYX #
+            default_dimensions = ['None',dimensions_str[1],dimensions_str[0], dimensions_str[2], dimensions_str[3]]
+            # default_dimensions = [dimensions_str[0], 'None', dimensions_str[1], dimensions_str[2], dimensions_str[3]] # if you rather have time and no channel, uncomment here (TZYX)
+        elif layer.data.ndim == 5: #CTZYX
+            default_dimensions = [dimensions_str[0], dimensions_str[2], dimensions_str[1], dimensions_str[3], dimensions_str[4]]
+        else: 
+            default_dimensions = ['None','None', 'None', 'None', 'None']
+        self._hyperstack_nb_timepoints_combobox.choices= dimensions_str
+        self._hyperstack_nb_channels_combobox.choices= dimensions_str
+        self._hyperstack_depth_combobox.choices= dimensions_str
+        self._hyperstack_Y_combobox.choices= dimensions_str
+        self._hyperstack_X_combobox.choices= dimensions_str
+
+        self._hyperstack_nb_timepoints_combobox.value= default_dimensions[0]
+        self._hyperstack_nb_channels_combobox.value= default_dimensions[1]
+        self._hyperstack_depth_combobox.value= default_dimensions[2]
+        self._hyperstack_Y_combobox.value= default_dimensions[3]
+        self._hyperstack_X_combobox.value= default_dimensions[4]
     def _update_target_axis_choices(self, event):
 
         if event == "XY":
