@@ -85,38 +85,38 @@ class TapenadeProcessingWidget(QWidget):
         self._viewer = viewer
 
         self._array_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Array",
-            annotation="napari.layers.Layer",
             options={"nullable": False},
         )
 
         self._image_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Image",
-            annotation="napari.layers.Image",
             options={"nullable": True},
         )
 
         self._ref_image_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Image (ref)",
-            annotation="napari.layers.Image",
             options={"nullable": True},
         )
 
         self._mask_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Mask",
-            annotation="napari.layers.Image",
             options={"nullable": True},
         )
 
         self._mask_for_volume_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Mask (volume)",
-            annotation="napari.layers.Image",
             options={"nullable": True},
         )
 
         self._labels_layer_combo = create_widget(
+            widget_type="ComboBox",
             label="Labels",
-            annotation="napari.layers.Labels",
             options={"nullable": True},
         )
 
@@ -1078,6 +1078,7 @@ class TapenadeProcessingWidget(QWidget):
 
     def _update_layer_combos(self):
 
+        ### 1. Clear all combos but keep the previous choice if possible
         previous_texts = []
 
         # clear all combos and add None
@@ -1096,6 +1097,7 @@ class TapenadeProcessingWidget(QWidget):
             if c._nullable:
                 c.native.addItem(None)
 
+        ### 2. Add layers to combos
         # add layers to compatible combos
         for layer in self._viewer.layers:
             if (
@@ -1122,7 +1124,7 @@ class TapenadeProcessingWidget(QWidget):
             # elif isinstance(layer, Tracks):
             #     self._tracks_layer_combo.addItem(layer.name)
 
-        # reset combo current choice to previous text if possible
+        ### 3. Reset combo current choice to previous text if possible
         for index_c, c in enumerate(
             [
                 self._array_layer_combo,
