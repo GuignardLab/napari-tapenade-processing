@@ -1670,8 +1670,7 @@ class TapenadeProcessingWidget(QWidget):
         name = f"{old_name}_{self._adjective_dict['segment_stardist']}"
         self._viewer.add_labels(
             labels,
-            name=name,
-            **self._transmissive_labels_layer_properties(image_layer),
+            name=name
         )
 
         self._labels_layer_combo.native.setCurrentIndex(
