@@ -1642,7 +1642,7 @@ class TapenadeProcessingWidget(QWidget):
             self._image_layer_combo.value, ["Image"]
         )
 
-        model_path = self._segment_stardist_model_path.value
+        model_path = str(self._segment_stardist_model_path.value)
 
         if model_path == "." or not os.path.exists(model_path):
             warnings.warn("Please enter a path to the StarDist model")
