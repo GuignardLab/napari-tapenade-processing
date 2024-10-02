@@ -1512,7 +1512,7 @@ class TapenadeProcessingWidget(QWidget):
             input_params_to_layer_names_and_types_dict = {
                 "image": (layer.name, "Image"),
                 "mask": (
-                    mask_layer.name if mask_layer is not None else None,
+                    mask_layer.name if mask_available else None,
                     "Mask",
                 ),
             }
