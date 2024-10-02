@@ -38,6 +38,7 @@ from tapenade.preprocessing import (
     compute_mask,
     crop_array_using_mask,
     crop_array_using_mask_from_files,
+    global_image_equalization,
     local_image_equalization,
     masked_gaussian_smoothing,
     normalize_intensity,
@@ -350,44 +351,65 @@ class TapenadeProcessingWidget(QWidget):
                 labels=False,
             )
 
-            # Local equalization
+            # Image equalization
+            self._local_global_equalization_checkbox = create_widget(
+                widget_type="CheckBox",
+                label="Perform global equalization",
+                options={"value": False},
+            )
+
+            self._local_global_equalization_checkbox.clicked.connect(
+                self._update_local_global_equalization
+            )
+
+            local_global_equalization_tooltip = (
+                "If checked, the equalization will be performed globally on the whole image.\n"
+                "If unchecked, the equalization will be performed locally in boxes of length (2*Box size)+1."
+            )
+
+            local_global_equalization_container = self._add_tooltip_button_to_container(
+                self._local_global_equalization_checkbox,
+                local_global_equalization_tooltip,
+            )
+
             self._local_norm_box_size_slider = create_widget(
                 widget_type="IntSlider",
                 label="Box size",
                 options={"min": 3, "max": 25, "value": 10},
             )
             local_norm_box_size_tooltip = (
-                "Size of the box used for the local equalization\n"
+                "Size of the box used for the image equalization\n"
                 "A good default is ~ 3/2 * object radius."
             )
 
-            local_norm_box_size_container = (
+            self._local_norm_box_size_container = (
                 self._add_tooltip_button_to_container(
                     self._local_norm_box_size_slider,
                     local_norm_box_size_tooltip,
                 )
             )
 
-            self._local_norm_percentiles_slider = create_widget(
+            self._equalization_percentiles_slider = create_widget(
                 widget_type="FloatRangeSlider",
                 label="Percentiles",
                 options={"min": 0, "max": 100, "value": [1, 99]},
             )
-            local_norm_percentiles_tooltip = (
-                "Percentiles used for the local equalization."
+            equalization_percentiles_tooltip = (
+                "Percentiles used for the image equalization."
             )
 
-            local_norm_percentiles_container = (
+            equalization_percentiles_container = (
                 self._add_tooltip_button_to_container(
-                    self._local_norm_percentiles_slider,
-                    local_norm_percentiles_tooltip,
+                    self._equalization_percentiles_slider,
+                    equalization_percentiles_tooltip,
                 )
             )
 
-            self._local_equalization_container = Container(
+            self._image_equalization_container = Container(
                 widgets=[
-                    local_norm_box_size_container,
-                    local_norm_percentiles_container,
+                    local_global_equalization_container,
+                    self._local_norm_box_size_container,
+                    equalization_percentiles_container,
                 ],
                 labels=False,
             )
@@ -634,6 +656,7 @@ class TapenadeProcessingWidget(QWidget):
             self._func_name_to_func = {
                 "change_array_pixelsize": change_array_pixelsize,
                 "compute_mask": compute_mask,
+                "global_image_equalization": global_image_equalization,
                 "local_image_equalization": local_image_equalization,
                 "align_array_major_axis": align_array_major_axis,
                 "remove_labels_outside_of_mask": remove_labels_outside_of_mask,
@@ -649,8 +672,8 @@ class TapenadeProcessingWidget(QWidget):
                     ("Spectral filtering", self._spectral_filtering_container),
                     ("Compute mask from image", self._compute_mask_container),
                     (
-                        "Local image equalization",
-                        self._local_equalization_container,
+                        "Image equalization",
+                        self._image_equalization_container,
                     ),
                     ("Intensity normalization", self._int_norm_container),
                     (
@@ -682,8 +705,8 @@ class TapenadeProcessingWidget(QWidget):
                     ("Spectral filtering", None),
                     ("Compute mask from image", self._run_compute_mask),
                     (
-                        "Local image equalization",
-                        self._run_local_equalization,
+                        "Image equalization",
+                        self._run_image_equalization,
                     ),
                     ("Intensity normalization", self._run_normalize_intensity),
                     (
@@ -714,7 +737,7 @@ class TapenadeProcessingWidget(QWidget):
                 "Change layer voxelsize": ["array"],
                 "Spectral filtering": [],
                 "Compute mask from image": ["image"],
-                "Local image equalization": ["image", "mask"],
+                "Image equalization": ["image", "mask"],
                 "Intensity normalization": [
                     "image",
                     "ref_image",
@@ -738,7 +761,8 @@ class TapenadeProcessingWidget(QWidget):
             self._adjective_dict = {
                 "change_array_pixelsize": "rescaled",
                 "compute_mask": "mask",
-                "local_image_equalization": "equalized",
+                "global_image_equalization": "equalized",
+                "local_image_equalization": "equalized_locally",
                 "align_array_major_axis": "aligned",
                 "remove_labels_outside_of_mask": "curated",
                 "crop_array_using_mask": "cropped",
@@ -1041,6 +1065,9 @@ class TapenadeProcessingWidget(QWidget):
         self._update_layer_combos()
 
         self._macro_graph = None
+
+    def _update_local_global_equalization(self, event):
+        self._local_norm_box_size_container.enabled = not event
 
     def _update_segment_stardist_thresholds(self, event):
         self._prob_threshold_container.enabled = not event
@@ -1406,7 +1433,7 @@ class TapenadeProcessingWidget(QWidget):
             if self._macro_graph is not None:
                 self._update_graph_widget()
 
-    def _run_local_equalization(self):
+    def _run_image_equalization(self):
 
         layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ["Image"]
@@ -1425,26 +1452,43 @@ class TapenadeProcessingWidget(QWidget):
         else:
             mask_layer_data = None
 
-        perc_low, perc_high = self._local_norm_percentiles_slider.value
+        perc_low, perc_high = self._equalization_percentiles_slider.value
 
-        func_params = {
-            "perc_low": perc_low,
-            "perc_high": perc_high,
-            "box_size": self._local_norm_box_size_slider.value,
-            "n_jobs": self._n_jobs_slider.value,
-        }
+        if self._local_global_equalization_checkbox.value:
 
-        start_time = time.time()
-        equalized_array = local_image_equalization(
-            layer.data, mask=mask_layer_data, **func_params
-        )
-        print(f"Local equalization took {time.time() - start_time} seconds")
+            func_name = "global_image_equalization"
 
-        if mask_layer_data is not None:
-            equalized_array = np.where(mask_layer_data, equalized_array, 0.0)
+            func_params = {
+                "perc_low": perc_low,
+                "perc_high": perc_high,
+                "n_jobs": self._n_jobs_slider.value,
+            }
+
+            start_time = time.time()
+            equalized_array = global_image_equalization(
+                layer.data, mask=mask_layer_data, **func_params
+            )
+            print(f"Global equalization took {time.time() - start_time} seconds")
+
+        else:
+                
+            func_name = "local_image_equalization"
+
+            func_params = {
+                "perc_low": perc_low,
+                "perc_high": perc_high,
+                "box_size": self._local_norm_box_size_slider.value,
+                "n_jobs": self._n_jobs_slider.value,
+            }
+
+            start_time = time.time()
+            equalized_array = local_image_equalization(
+                layer.data, mask=mask_layer_data, **func_params
+            )
+            print(f"Local equalization took {time.time() - start_time} seconds")
 
         name = (
-            f"{layer.name}_{self._adjective_dict['local_image_equalization']}"
+            f"{layer.name}_{self._adjective_dict[func_name]}"
         )
 
         if self._overwrite_checkbox.value:
@@ -1476,7 +1520,7 @@ class TapenadeProcessingWidget(QWidget):
                 [("equalized_image", (name, "Image"))]
             )
             self._recorder.record(
-                function_name="local_image_equalization",
+                function_name=func_name,
                 func_params=func_params,
                 main_input_param_name="image",
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
