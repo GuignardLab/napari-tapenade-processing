@@ -1302,7 +1302,7 @@ class TapenadeProcessingWidget(QWidget):
         self, layer: "napari.layers.Labels"
     ):
         return {
-            "color": layer.color,
+            "colormap": layer.colormap,
             "blending": layer.blending,
             "opacity": layer.opacity,
         }
