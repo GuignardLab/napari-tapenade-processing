@@ -1511,11 +1511,12 @@ class TapenadeProcessingWidget(QWidget):
         if self._is_recording_parameters:
             input_params_to_layer_names_and_types_dict = {
                 "image": (layer.name, "Image"),
-                "mask": (
-                    mask_layer.name if mask_available else None,
-                    "Mask",
-                ),
             }
+            if mask_available:
+                input_params_to_layer_names_and_types_dict["mask"] = (
+                    mask_layer.name,
+                    "Image",
+                )
             output_params_to_layer_names_and_types_dict = OrderedDict(
                 [("equalized_image", (name, "Image"))]
             )
@@ -1613,15 +1614,17 @@ class TapenadeProcessingWidget(QWidget):
             input_params_to_layer_names_and_types_dict = {
                 "image": (old_name, "Image"),
                 "ref_image": (ref_layer.name, "Image"),
-                "mask": (
-                    mask_layer.name if mask_available else None,
-                    "Mask",
-                ),
-                "labels": (
-                    labels_layer.name if labels_available else None,
-                    "Labels",
-                ),
             }
+            if mask_available:
+                input_params_to_layer_names_and_types_dict["mask"] = (
+                    mask_layer.name,
+                    "Image",
+                )
+            if labels_available:
+                input_params_to_layer_names_and_types_dict["labels"] = (
+                    labels_layer.name,
+                    "Labels",
+                )
             output_params_to_layer_names_and_types_dict = OrderedDict(
                 [("normalized_image", (name, "Image"))]
             )
@@ -1978,20 +1981,18 @@ class TapenadeProcessingWidget(QWidget):
 
         if self._is_recording_parameters:
             input_params_to_layer_names_and_types_dict = {
-                "image": (layer.name, "Image"),
-                "mask": (
-                    mask_layer.name if mask_available else None,
-                    "Mask",
-                ),
-                "mask_for_volume": (
-                    (
-                        mask_for_volume_layer.name
-                        if mask_for_volume_available
-                        else None
-                    ),
-                    "Mask",
-                ),
+                "image": (layer.name, "Image")
             }
+            if mask_available:
+                input_params_to_layer_names_and_types_dict["mask"] = (
+                    mask_layer.name,
+                    "Image",
+                )
+            if mask_for_volume_available:
+                input_params_to_layer_names_and_types_dict["mask_for_volume"] = (
+                    mask_for_volume_layer.name,
+                    "Image",
+                )
             output_params_to_layer_names_and_types_dict = OrderedDict(
                 [("smoothed_image", (name, "Image"))]
             )
