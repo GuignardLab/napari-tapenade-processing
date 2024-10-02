@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: napari-tapenade-processing
+message: 'If you use this software, please cite it as below.'
+type: software
+authors:
+  - given-names: Jules
+    family-names: Vanaret
+    email: jules.vanaret@univ-amu.fr
+  - given-names: Alice
+    family-names: Gros
+  - given-names: Valentin
+    family-names: Dunsing Eichenauer
+  - given-names: Agathe
+    family-names: Rostan
+  - given-names: Philippe
+    family-names: Roudot
+  - given-names: Pierre-François
+    family-names: Lenne
+  - given-names: Léo
+    family-names: Guignard
+    email: leo.guignard@univ-amu.fr
+  - given-names: Sham
+    family-names: Tlili
+    email: sham.tlili@univ-amu.fr
+identifiers:
+  - type: doi
+    value: 10.1101/2024.08.13.607832
+repository-code: 'https://github.com/GuignardLab/tapenade'
+abstract: >-
+  A collection of methods to process images of deep 3D/3D+time tissues in Napari.
+license: MIT
