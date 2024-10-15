@@ -1,6 +1,13 @@
 # :herb: napari-tapenade-processing
 
-<img src="https://github.com/GuignardLab/tapenade/blob/Packaging/imgs/tapenade3.png" width="100">
+[![License MIT](https://img.shields.io/pypi/l/napari-tapenade-processing.svg?color=green)](https://github.com/jules-vanaret/napari-tapenade-processing/raw/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/napari-tapenade-processing.svg?color=green)](https://pypi.org/project/napari-tapenade-processing)
+[![Python Version](https://img.shields.io/pypi/pyversions/napari-tapenade-processing.svg?color=green)](https://python.org)
+[![tests](https://github.com/jules-vanaret/napari-tapenade-processing/workflows/tests/badge.svg)](https://github.com/jules-vanaret/napari-tapenade-processing/actions)
+[![codecov](https://codecov.io/gh/jules-vanaret/napari-tapenade-processing/branch/main/graph/badge.svg)](https://codecov.io/gh/jules-vanaret/napari-tapenade-processing)
+[![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-tapenade-processing)](https://napari-hub.org/plugins/napari-tapenade-processing)
+
+<img src="https://github.com/GuignardLab/tapenade/blob/main/imgs/tapenade3.png" width="100">
 
 A collection of methods to process images of deep 3D/3D+time tissues in Napari.
 
@@ -9,6 +16,8 @@ A collection of methods to process images of deep 3D/3D+time tissues in Napari.
 If you use this plugin for your research, please [cite us](https://github.com/GuignardLab/tapenade/blob/main/README.md#how-to-cite).
 
 ## Overview
+
+<img src="imgs/napari_preproc_demo.gif"/>
 
 While working with large and dense 3D and 3D+time gastruloid datasets, we found that being able to visualise and interact with the data dynamically greatly helped processing it.
 During the pre-processing stage, dynamical exploration and interaction led to faster tuning of the parameters by allowing direct visual feedback, and gave key biophysical insight during the analysis stage.
