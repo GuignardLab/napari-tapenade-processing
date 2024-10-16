@@ -18,6 +18,7 @@ from magicgui.widgets import (
     EmptyWidget,
     Label,
     create_widget,
+    PushButton,
 )
 from napari.layers import Image
 from natsort import natsorted
@@ -42,7 +43,7 @@ from tapenade.preprocessing import (
     local_image_equalization,
     masked_gaussian_smoothing,
     normalize_intensity,
-    reorganize_array_dimension,
+    reorganize_array_dimensions,
     segment_stardist,
     segment_stardist_from_files,
 )
@@ -147,612 +148,671 @@ class TapenadeProcessingWidget(QWidget):
 
         if True:
             # Making array isotropic
-            self._rescale_interp_order_combo = create_widget(
-                label="Interp order",
-                options={
-                    "choices": ["Nearest", "Linear", "Cubic"],
-                    "value": "Linear",
-                },
-            )
-            self._rescale_interp_order_combo.bind(
-                self._bind_combo_interpolation_order
-            )
-            tooltip_rescale = (
-                "Interpolation order.\n"
-                "0: Nearest, 1: Linear, 3: Cubic\n"
-                "Bigger means slower but smoother."
-            )
+            if True:
+                self._rescale_interp_order_combo = create_widget(
+                    label="Interp order",
+                    options={
+                        "choices": ["Nearest", "Linear", "Cubic"],
+                        "value": "Linear",
+                    },
+                )
+                self._rescale_interp_order_combo.bind(
+                    self._bind_combo_interpolation_order
+                )
+                tooltip_rescale = (
+                    "Interpolation order.\n"
+                    "0: Nearest, 1: Linear, 3: Cubic\n"
+                    "Bigger means slower but smoother."
+                )
 
-            rescale_interp_order_label = Label(value="Images interp order")
+                rescale_interp_order_label = Label(value="Images interp order")
 
-            rescale_interp_order_container = Container(
-                widgets=[
-                    rescale_interp_order_label,
-                    self._rescale_interp_order_combo,
-                ],
-                layout="horizontal",
-                labels=False,
-            )
+                rescale_interp_order_container = Container(
+                    widgets=[
+                        rescale_interp_order_label,
+                        self._rescale_interp_order_combo,
+                    ],
+                    layout="horizontal",
+                    labels=False,
+                )
 
-            self._add_tooltip_button_to_container(
-                rescale_interp_order_container, tooltip_rescale
-            )
+                self._add_tooltip_button_to_container(
+                    rescale_interp_order_container, tooltip_rescale
+                )
 
-            self._rescale_input_pixelsize = create_widget(
-                widget_type="TupleEdit",
-                label="In",
-                options={
-                    "value": (1.0, 1.0, 1.0),
-                    "layout": "vertical",
-                    "options": {"min": 0},
-                },
-            )
+                self._rescale_input_pixelsize = create_widget(
+                    widget_type="TupleEdit",
+                    label="In",
+                    options={
+                        "value": (1.0, 1.0, 1.0),
+                        "layout": "vertical",
+                        "options": {"min": 0},
+                    },
+                )
 
-            self._rescale_output_pixelsize = create_widget(
-                widget_type="TupleEdit",
-                label="Out",
-                options={
-                    "value": (1.0, 1.0, 1.0),
-                    "layout": "vertical",
-                    "options": {"min": 0},
-                },
-            )
+                self._rescale_output_pixelsize = create_widget(
+                    widget_type="TupleEdit",
+                    label="Out",
+                    options={
+                        "value": (1.0, 1.0, 1.0),
+                        "layout": "vertical",
+                        "options": {"min": 0},
+                    },
+                )
 
-            pixelsizes_container = Container(
-                widgets=[
-                    self._rescale_input_pixelsize,
-                    self._rescale_output_pixelsize,
-                ],
-                layout="horizontal",
-                labels=True,
-            )
+                pixelsizes_container = Container(
+                    widgets=[
+                        self._rescale_input_pixelsize,
+                        self._rescale_output_pixelsize,
+                    ],
+                    layout="horizontal",
+                    labels=True,
+                )
 
-            self._rescale_container = Container(
-                widgets=[
-                    rescale_interp_order_container,
-                    Label(value="Voxelsizes (ZYX, e.g in µm/pix):"),
-                    pixelsizes_container,
-                ],
-                labels=False,
-            )
+                self._rescale_container = Container(
+                    widgets=[
+                        rescale_interp_order_container,
+                        Label(value="Voxelsizes (ZYX, e.g in µm/pix):"),
+                        pixelsizes_container,
+                    ],
+                    labels=False,
+                )
 
             # Reorganize array dimensions
-            self._reorganize_dims_nb_timepoints_combobox = create_widget(
-                widget_type="ComboBox", label="Number of timepoints :"
-            )
-
-            select__nb_timepoints_tooltip = "Number of timepoints.\n"
-            select_nb_timepoints_container = (
-                self._add_tooltip_button_to_container(
-                    self._reorganize_dims_nb_timepoints_combobox,
-                    select__nb_timepoints_tooltip,
+            if True:
+                self._refresh_dims_button = create_widget(
+                    widget_type="PushButton",
+                    label="Refresh dimensions from array",
                 )
-            )
 
-            self._reorganize_dims_nb_channels_combobox = create_widget(
-                widget_type="ComboBox", label="Number of channels :"
-            )
-            select__nb_channels_tooltip = "Number of channels.\n"
-            select_nb_channels_container = (
-                self._add_tooltip_button_to_container(
-                    self._reorganize_dims_nb_channels_combobox,
-                    select__nb_channels_tooltip,
+                self._refresh_dims_button.clicked.connect(
+                    self._update_array_reorganization_comboboxes
                 )
-            )
 
-            self._reorganize_dims_depth_combobox = create_widget(
-                widget_type="ComboBox", label="Depth :"
-            )
-            select_depth_tooltip = "depth.\n"
-            select_depth_container = self._add_tooltip_button_to_container(
-                self._reorganize_dims_depth_combobox,
-                select_depth_tooltip,
-            )
-
-            self._reorganize_dims_Y_combobox = create_widget(
-                widget_type="ComboBox", label="Y :"
-            )
-            select_Y_tooltip = "Y.\n"
-            select_Y_container = self._add_tooltip_button_to_container(
-                self._reorganize_dims_Y_combobox,
-                select_Y_tooltip,
-            )
-
-            self._reorganize_dims_X_combobox = create_widget(
-                widget_type="ComboBox", label="X :"
-            )
-            select_X_tooltip = "X.\n"
-            select_X_container = self._add_tooltip_button_to_container(
-                self._reorganize_dims_X_combobox,
-                select_X_tooltip,
-            )
-            self._reorganize_dims_separate_channels_checkbox = create_widget(
-                widget_type="CheckBox",
-                options={"value": False},
-                label="Separate channels",
-            )
-            separate_channels_checkbox_tooltip = (
-                "Separate the channels of your image into different layers.\n"
-            )
-
-            separate_channels_container = (
-                self._add_tooltip_button_to_container(
-                    self._reorganize_dims_separate_channels_checkbox,
-                    separate_channels_checkbox_tooltip,
+                refresh_dims_tooltip = (
+                    "Refresh the dimensions values in the boxes\n"
+                    "based on the currently selected array."
                 )
-            )
 
-            self._reorganize_dims_keep_original_image_checkbox = create_widget(
-                widget_type="CheckBox",
-                options={"value": False},
-                label="Keep original image",
-            )
-            keep_original_image_checkbox_tooltip = "If unclicked, the original image will be deleted and only the separated channels will be plot.\n"
-
-            # self._array_layer_combo.changed.connect(self._update_layer_combos)
-
-            self._array_layer_combo.native.currentIndexChanged.connect(
-                self._update_array_reorganization_comboboxes
-            )
-            keep_original_image_container = (
-                self._add_tooltip_button_to_container(
-                    self._reorganize_dims_keep_original_image_checkbox,
-                    keep_original_image_checkbox_tooltip,
+                refresh_dims_container = self._add_tooltip_button_to_container(
+                    self._refresh_dims_button, refresh_dims_tooltip
                 )
-            )
-            self._organize_array_dimensions = Container(
-                widgets=[
-                    select_nb_timepoints_container,
-                    select_nb_channels_container,
-                    select_depth_container,
-                    select_Y_container,
-                    select_X_container,
-                    separate_channels_container,
-                    keep_original_image_container,
-                ],
-                labels=False,
-            )
+
+                self._reorganize_dims_nb_timepoints_combobox = create_widget(
+                    widget_type="ComboBox", label="Number of timepoints:"
+                )
+
+                select_nb_timepoints_tooltip = "Number of timepoints."
+                select_nb_timepoints_container = (
+                    self._add_tooltip_button_to_container(
+                        self._reorganize_dims_nb_timepoints_combobox,
+                        select_nb_timepoints_tooltip,
+                    )
+                )
+
+                self._reorganize_dims_nb_channels_combobox = create_widget(
+                    widget_type="ComboBox", label="Number of channels:"
+                )
+                select_nb_channels_tooltip = "Number of channels."
+                select_nb_channels_container = (
+                    self._add_tooltip_button_to_container(
+                        self._reorganize_dims_nb_channels_combobox,
+                        select_nb_channels_tooltip,
+                    )
+                )
+
+                self._reorganize_dims_depth_combobox = create_widget(
+                    widget_type="ComboBox", label="Depth:"
+                )
+                select_depth_tooltip = "Number of planes in the Z dimension."
+                select_depth_container = self._add_tooltip_button_to_container(
+                    self._reorganize_dims_depth_combobox,
+                    select_depth_tooltip,
+                )
+
+                self._reorganize_dims_Y_combobox = create_widget(
+                    widget_type="ComboBox", label="Num. pixels Y:"
+                )
+                select_Y_tooltip = "Number of pixels in the Y dimension."
+                select_Y_container = self._add_tooltip_button_to_container(
+                    self._reorganize_dims_Y_combobox,
+                    select_Y_tooltip,
+                )
+
+                self._reorganize_dims_X_combobox = create_widget(
+                    widget_type="ComboBox", label="Num. pixels X:"
+                )
+                select_X_tooltip = "Number of pixels in the X dimension."
+                select_X_container = self._add_tooltip_button_to_container(
+                    self._reorganize_dims_X_combobox,
+                    select_X_tooltip,
+                )
+                self._reorganize_dims_separate_channels_checkbox = (
+                    create_widget(
+                        widget_type="CheckBox",
+                        options={"value": False},
+                        label="Separate channels",
+                    )
+                )
+                separate_channels_checkbox_tooltip = "Channels will be split so that each one appear in a different channel."
+
+                separate_channels_container = (
+                    self._add_tooltip_button_to_container(
+                        self._reorganize_dims_separate_channels_checkbox,
+                        separate_channels_checkbox_tooltip,
+                    )
+                )
+
+                self._reorganize_dims_keep_original_image_checkbox = (
+                    create_widget(
+                        widget_type="CheckBox",
+                        options={"value": False},
+                        label="Keep original image",
+                    )
+                )
+                keep_original_image_checkbox_tooltip = (
+                    "If unclicked, the original image will be deleted.\n"
+                    "This can be useful to prevent napari dimension sliders\n"
+                    "from being confusing."
+                )
+
+                # self._array_layer_combo.changed.connect(self._update_layer_combos)
+
+                self._array_layer_combo.native.currentIndexChanged.connect(
+                    self._update_array_reorganization_comboboxes
+                )
+                self._array_layer_combo.native.currentTextChanged.connect(
+                    self._update_array_reorganization_comboboxes
+                )
+
+                keep_original_image_container = (
+                    self._add_tooltip_button_to_container(
+                        self._reorganize_dims_keep_original_image_checkbox,
+                        keep_original_image_checkbox_tooltip,
+                    )
+                )
+                self._organize_array_dimensions = Container(
+                    widgets=[
+                        refresh_dims_container,
+                        select_nb_timepoints_container,
+                        select_nb_channels_container,
+                        select_depth_container,
+                        select_Y_container,
+                        select_X_container,
+                        separate_channels_container,
+                        keep_original_image_container,
+                    ],
+                    labels=False,
+                )
+
             # Spectral filtering
-            self._spectral_filtering_container = Container(
-                widgets=[
-                    EmptyWidget(),
-                    Label(value="Not implemented yet."),
-                    Label(value="Under construction."),
-                    EmptyWidget(),
-                ],
-                labels=False,
-            )
+            if True:
+                self._spectral_filtering_container = Container(
+                    widgets=[
+                        EmptyWidget(),
+                        Label(value="Not implemented yet."),
+                        Label(value="Under construction."),
+                        EmptyWidget(),
+                    ],
+                    labels=False,
+                )
 
             # Computing mask
-            self._compute_mask_method_combo = create_widget(
-                label="Method",
-                options={"choices": ["otsu", "snp otsu"], "value": "snp otsu"},
-            )
-
-            compute_mask_method_tooltip = (
-                "otsu: thresholding with Otsu's method on blurred image.\n"
-                "snp otsu: more robust but slower version of thresholding with Otsu's method."
-            )
-            compute_mask_method_container = (
-                self._add_tooltip_button_to_container(
-                    self._compute_mask_method_combo,
-                    compute_mask_method_tooltip,
+            if True:
+                self._compute_mask_method_combo = create_widget(
+                    label="Method",
+                    options={
+                        "choices": ["otsu", "snp otsu"],
+                        "value": "snp otsu",
+                    },
                 )
-            )
 
-            self._compute_mask_sigma_blur_slider = create_widget(
-                widget_type="IntSlider",
-                label="Sigma blur",
-                options={"min": 1, "max": 10, "value": 3},
-            )
-
-            compute_mask_sigma_blur_tooltip = (
-                "Sigma of the Gaussian blur applied to the image before thresholding\n"
-                "A good default is ~ object radius/3."
-            )
-
-            compute_mask_sigma_blur_container = (
-                self._add_tooltip_button_to_container(
-                    self._compute_mask_sigma_blur_slider,
-                    compute_mask_sigma_blur_tooltip,
+                compute_mask_method_tooltip = (
+                    "otsu: thresholding with Otsu's method on blurred image.\n"
+                    "snp otsu: more robust but slower version of thresholding with Otsu's method."
                 )
-            )
-
-            self._compute_mask_threshold_factor_slider = create_widget(
-                widget_type="FloatSlider",
-                label="Threshold factor",
-                options={"min": 0.5, "max": 1.5, "value": 1},
-            )
-            compute_mask_threshold_factor_tooltip = (
-                "Multiplicative factor applied to the threshold computed by the chosen method\n"
-                "If the mask is too inclusive (fewer pixels should be True) set factor < 1\n"
-                "If the mask is too excusive (fewer pixels should be False) (set factor > 1)."
-            )
-
-            compute_mask_threshold_factor_container = (
-                self._add_tooltip_button_to_container(
-                    self._compute_mask_threshold_factor_slider,
-                    compute_mask_threshold_factor_tooltip,
+                compute_mask_method_container = (
+                    self._add_tooltip_button_to_container(
+                        self._compute_mask_method_combo,
+                        compute_mask_method_tooltip,
+                    )
                 )
-            )
 
-            # self._convex_hull_checkbox = create_widget(
-            #     widget_type="CheckBox",
-            #     label="Compute convex hull",
-            #     options={"value": False},
-            # )
-
-            # convex_hull_checkbox_tooltip = (
-            #     "Returns the convex hull of the mask. Really slow."
-            # )
-            # convex_hull_container = self._add_tooltip_button_to_container(
-            #     self._convex_hull_checkbox, convex_hull_checkbox_tooltip
-            # )
-
-            self._compute_mask_post_processing_combo = create_widget(
-                label="Post-processing",
-                options={
-                    "choices": ["none", "fill_holes", "convex_hull"],
-                    "value": "fill_holes",
-                },
-            )
-
-            compute_mask_post_processing_tooltip = (
-                "Post-processing applied to the mask after thresholding.\n"
-                "fill_holes: fills holes in the mask.\n"
-                "convex_hull: returns the convex hull of the mask."
-            )
-
-            compute_mask_post_processing_container = (
-                self._add_tooltip_button_to_container(
-                    self._compute_mask_post_processing_combo,
-                    compute_mask_post_processing_tooltip,
+                self._compute_mask_sigma_blur_slider = create_widget(
+                    widget_type="IntSlider",
+                    label="Sigma blur",
+                    options={"min": 1, "max": 10, "value": 3},
                 )
-            )
 
-            self._compute_mask_keep_largest_cc_checkbox = create_widget(
-                widget_type="CheckBox",
-                label="Keep largest connected component",
-                options={"value": True},
-            )
+                compute_mask_sigma_blur_tooltip = (
+                    "Sigma of the Gaussian blur applied to the image before thresholding\n"
+                    "A good default is ~ object radius/3."
+                )
 
-            keep_largest_cc_tooltip = "If checked, only the largest connected component of the mask will be kept."
+                compute_mask_sigma_blur_container = (
+                    self._add_tooltip_button_to_container(
+                        self._compute_mask_sigma_blur_slider,
+                        compute_mask_sigma_blur_tooltip,
+                    )
+                )
 
-            keep_largest_cc_container = self._add_tooltip_button_to_container(
-                self._compute_mask_keep_largest_cc_checkbox,
-                keep_largest_cc_tooltip,
-            )
+                self._compute_mask_threshold_factor_slider = create_widget(
+                    widget_type="FloatSlider",
+                    label="Threshold factor",
+                    options={"min": 0.5, "max": 1.5, "value": 1},
+                )
+                compute_mask_threshold_factor_tooltip = (
+                    "Multiplicative factor applied to the threshold computed by the chosen method\n"
+                    "If the mask is too inclusive (fewer pixels should be True) set factor < 1\n"
+                    "If the mask is too excusive (fewer pixels should be False) (set factor > 1)."
+                )
 
-            self._registered_image_checkbox = create_widget(
-                widget_type="CheckBox",
-                label="Registered image",
-                options={"value": False},
-            )
-            registered_image_tooltip = (
-                "If checked, the image is assumed to have large areas of 0s outside of the tapenade.\n"
-                "These values will be masked"
-            )
+                compute_mask_threshold_factor_container = (
+                    self._add_tooltip_button_to_container(
+                        self._compute_mask_threshold_factor_slider,
+                        compute_mask_threshold_factor_tooltip,
+                    )
+                )
 
-            registered_image_container = self._add_tooltip_button_to_container(
-                self._registered_image_checkbox, registered_image_tooltip
-            )
+                # self._convex_hull_checkbox = create_widget(
+                #     widget_type="CheckBox",
+                #     label="Compute convex hull",
+                #     options={"value": False},
+                # )
 
-            self._compute_mask_container = Container(
-                widgets=[
-                    compute_mask_method_container,
-                    compute_mask_sigma_blur_container,
-                    compute_mask_threshold_factor_container,
-                    compute_mask_post_processing_container,
-                    keep_largest_cc_container,
-                    registered_image_container,
-                ],
-                labels=False,
-            )
+                # convex_hull_checkbox_tooltip = (
+                #     "Returns the convex hull of the mask. Really slow."
+                # )
+                # convex_hull_container = self._add_tooltip_button_to_container(
+                #     self._convex_hull_checkbox, convex_hull_checkbox_tooltip
+                # )
+
+                self._compute_mask_post_processing_combo = create_widget(
+                    label="Post-processing",
+                    options={
+                        "choices": ["none", "fill_holes", "convex_hull"],
+                        "value": "fill_holes",
+                    },
+                )
+
+                compute_mask_post_processing_tooltip = (
+                    "Post-processing applied to the mask after thresholding.\n"
+                    "fill_holes: fills holes in the mask.\n"
+                    "convex_hull: returns the convex hull of the mask."
+                )
+
+                compute_mask_post_processing_container = (
+                    self._add_tooltip_button_to_container(
+                        self._compute_mask_post_processing_combo,
+                        compute_mask_post_processing_tooltip,
+                    )
+                )
+
+                self._compute_mask_keep_largest_cc_checkbox = create_widget(
+                    widget_type="CheckBox",
+                    label="Keep largest connected component",
+                    options={"value": True},
+                )
+
+                keep_largest_cc_tooltip = "If checked, only the largest connected component of the mask will be kept."
+
+                keep_largest_cc_container = (
+                    self._add_tooltip_button_to_container(
+                        self._compute_mask_keep_largest_cc_checkbox,
+                        keep_largest_cc_tooltip,
+                    )
+                )
+
+                self._registered_image_checkbox = create_widget(
+                    widget_type="CheckBox",
+                    label="Registered image",
+                    options={"value": False},
+                )
+                registered_image_tooltip = (
+                    "If checked, the image is assumed to have large areas of 0s outside of the tapenade.\n"
+                    "These values will be masked"
+                )
+
+                registered_image_container = (
+                    self._add_tooltip_button_to_container(
+                        self._registered_image_checkbox,
+                        registered_image_tooltip,
+                    )
+                )
+
+                self._compute_mask_container = Container(
+                    widgets=[
+                        compute_mask_method_container,
+                        compute_mask_sigma_blur_container,
+                        compute_mask_threshold_factor_container,
+                        compute_mask_post_processing_container,
+                        keep_largest_cc_container,
+                        registered_image_container,
+                    ],
+                    labels=False,
+                )
 
             # Image equalization
-            self._local_global_equalization_checkbox = create_widget(
-                widget_type="CheckBox",
-                label="Perform global equalization",
-                options={"value": False},
-            )
-
-            self._local_global_equalization_checkbox.clicked.connect(
-                self._update_local_global_equalization
-            )
-
-            local_global_equalization_tooltip = (
-                "If checked, the equalization will be performed globally on the whole image.\n"
-                "If unchecked, the equalization will be performed locally in boxes of length (2*Box size)+1."
-            )
-
-            local_global_equalization_container = self._add_tooltip_button_to_container(
-                self._local_global_equalization_checkbox,
-                local_global_equalization_tooltip,
-            )
-
-            self._local_norm_box_size_slider = create_widget(
-                widget_type="IntSlider",
-                label="Box size",
-                options={"min": 3, "max": 25, "value": 10},
-            )
-            local_norm_box_size_tooltip = (
-                "Size of the box used for the image equalization\n"
-                "A good default is ~ 3/2 * object radius."
-            )
-
-            self._local_norm_box_size_container = (
-                self._add_tooltip_button_to_container(
-                    self._local_norm_box_size_slider,
-                    local_norm_box_size_tooltip,
+            if True:
+                self._local_global_equalization_checkbox = create_widget(
+                    widget_type="CheckBox",
+                    label="Perform global equalization",
+                    options={"value": False},
                 )
-            )
 
-            self._equalization_percentiles_slider = create_widget(
-                widget_type="FloatRangeSlider",
-                label="Percentiles",
-                options={"min": 0, "max": 100, "value": [1, 99]},
-            )
-            equalization_percentiles_tooltip = (
-                "Percentiles used for the image equalization."
-            )
-
-            equalization_percentiles_container = (
-                self._add_tooltip_button_to_container(
-                    self._equalization_percentiles_slider,
-                    equalization_percentiles_tooltip,
+                self._local_global_equalization_checkbox.clicked.connect(
+                    self._update_local_global_equalization
                 )
-            )
 
-            self._image_equalization_container = Container(
-                widgets=[
-                    local_global_equalization_container,
-                    self._local_norm_box_size_container,
-                    equalization_percentiles_container,
-                ],
-                labels=False,
-            )
+                local_global_equalization_tooltip = (
+                    "If checked, the equalization will be performed globally on the whole image.\n"
+                    "If unchecked, the equalization will be performed locally in boxes of length (2*Box size)+1."
+                )
+
+                local_global_equalization_container = (
+                    self._add_tooltip_button_to_container(
+                        self._local_global_equalization_checkbox,
+                        local_global_equalization_tooltip,
+                    )
+                )
+
+                self._local_norm_box_size_slider = create_widget(
+                    widget_type="IntSlider",
+                    label="Box size",
+                    options={"min": 3, "max": 25, "value": 10},
+                )
+                local_norm_box_size_tooltip = (
+                    "Size of the box used for the image equalization\n"
+                    "A good default is ~ 3/2 * object radius."
+                )
+
+                self._local_norm_box_size_container = (
+                    self._add_tooltip_button_to_container(
+                        self._local_norm_box_size_slider,
+                        local_norm_box_size_tooltip,
+                    )
+                )
+
+                self._equalization_percentiles_slider = create_widget(
+                    widget_type="FloatRangeSlider",
+                    label="Percentiles",
+                    options={"min": 0, "max": 100, "value": [1, 99]},
+                )
+                equalization_percentiles_tooltip = (
+                    "Percentiles used for the image equalization."
+                )
+
+                equalization_percentiles_container = (
+                    self._add_tooltip_button_to_container(
+                        self._equalization_percentiles_slider,
+                        equalization_percentiles_tooltip,
+                    )
+                )
+
+                self._image_equalization_container = Container(
+                    widgets=[
+                        local_global_equalization_container,
+                        self._local_norm_box_size_container,
+                        equalization_percentiles_container,
+                    ],
+                    labels=False,
+                )
 
             # Intensity normalization
-            self._int_norm_sigma_slider = create_widget(
-                widget_type="IntSlider",
-                label="Sigma\n(0=automatic)",
-                options={"min": 0, "max": 30, "value": 20},
-            )
+            if True:
+                self._int_norm_sigma_slider = create_widget(
+                    widget_type="IntSlider",
+                    label="Sigma\n(0=automatic)",
+                    options={"min": 0, "max": 30, "value": 20},
+                )
 
-            int_norm_sigma_tooltip = (
-                "Sigma for the multiscale gaussian smoothing used to normalize the reference signal.\n"
-                "If 0, the sigma is automatically computed."
-            )
+                int_norm_sigma_tooltip = (
+                    "Sigma for the multiscale gaussian smoothing used to normalize the reference signal.\n"
+                    "If 0, the sigma is automatically computed."
+                )
 
-            int_norm_sigma_container = self._add_tooltip_button_to_container(
-                self._int_norm_sigma_slider, int_norm_sigma_tooltip
-            )
+                int_norm_sigma_container = (
+                    self._add_tooltip_button_to_container(
+                        self._int_norm_sigma_slider, int_norm_sigma_tooltip
+                    )
+                )
 
-            self._int_norm_width_slider = create_widget(
-                widget_type="IntSlider",
-                label="Width of ref plane",
-                options={"min": 1, "max": 5, "value": 3},
-            )
-            int_norm_width_tooltip = (
-                "Width of the reference plane used to compute normalization values.\n"
-                "You usually don't need to change this."
-            )
+                self._int_norm_width_slider = create_widget(
+                    widget_type="IntSlider",
+                    label="Width of ref plane",
+                    options={"min": 1, "max": 5, "value": 3},
+                )
+                int_norm_width_tooltip = (
+                    "Width of the reference plane used to compute normalization values.\n"
+                    "You usually don't need to change this."
+                )
 
-            int_norm_width_container = self._add_tooltip_button_to_container(
-                self._int_norm_width_slider, int_norm_width_tooltip
-            )
+                int_norm_width_container = (
+                    self._add_tooltip_button_to_container(
+                        self._int_norm_width_slider, int_norm_width_tooltip
+                    )
+                )
 
-            self._int_norm_container = Container(
-                widgets=[
-                    int_norm_sigma_container,
-                    int_norm_width_container,
-                ],
-                labels=False,
-            )
+                self._int_norm_container = Container(
+                    widgets=[
+                        int_norm_sigma_container,
+                        int_norm_width_container,
+                    ],
+                    labels=False,
+                )
 
             # Segment with StarDist
-            self._segment_stardist_model_path = create_widget(
-                widget_type="FileEdit",
-                options={"mode": "d"},
-                label="Model path",
-            )
-
-            self._segment_stardist_model_path.native.children()[
-                1
-            ].setPlaceholderText("Path to pretrained model folder")
-
-            self._segment_stardist_default_thresholds_checkbox = create_widget(
-                widget_type="CheckBox",
-                label="Use default thresholds",
-                options={"value": True},
-            )
-
-            default_thresholds_tooltip = (
-                "If checked, the probability threshold and NMS threshold\n"
-                "will be set to the optimized values from the pretrained model."
-            )
-
-            default_thresholds_container = (
-                self._add_tooltip_button_to_container(
-                    self._segment_stardist_default_thresholds_checkbox,
-                    default_thresholds_tooltip,
+            if True:
+                self._segment_stardist_model_path = create_widget(
+                    widget_type="FileEdit",
+                    options={"mode": "d"},
+                    label="Model path",
                 )
-            )
 
-            self._segment_stardist_prob_threshold_slider = create_widget(
-                widget_type="FloatSlider",
-                label="Prob threshold",
-                options={"min": 0, "max": 1, "value": 0.5},
-            )
+                self._segment_stardist_model_path.native.children()[
+                    1
+                ].setPlaceholderText("Path to pretrained model folder")
 
-            prob_threshold_tooltip = (
-                "Threshold above which a pixel from the probability map is\n"
-                "considered as being a center candidate.\n"
-                "Lower values will result in more objects."
-            )
-
-            self._prob_threshold_container = (
-                self._add_tooltip_button_to_container(
-                    self._segment_stardist_prob_threshold_slider,
-                    prob_threshold_tooltip,
+                self._segment_stardist_default_thresholds_checkbox = (
+                    create_widget(
+                        widget_type="CheckBox",
+                        label="Use default thresholds",
+                        options={"value": True},
+                    )
                 )
-            )
-            self._prob_threshold_container.enabled = False
 
-            self._segment_stardist_nms_threshold_slider = create_widget(
-                widget_type="FloatSlider",
-                label="NMS threshold",
-                options={"min": 0, "max": 1, "value": 0.4},
-            )
-
-            nms_threshold_tooltip = (
-                "IoU threshold for non-maximum suppression.\n"
-                "Higher values will discard redundant candidates better\n"
-                "but could also remove valid objects that are very close to each other."
-            )
-
-            self._nms_threshold_container = (
-                self._add_tooltip_button_to_container(
-                    self._segment_stardist_nms_threshold_slider,
-                    nms_threshold_tooltip,
+                default_thresholds_tooltip = (
+                    "If checked, the probability threshold and NMS threshold\n"
+                    "will be set to the optimized values from the pretrained model."
                 )
-            )
-            self._nms_threshold_container.enabled = False
 
-            self._segment_stardist_default_thresholds_checkbox.changed.connect(
-                self._update_segment_stardist_thresholds
-            )
+                default_thresholds_container = (
+                    self._add_tooltip_button_to_container(
+                        self._segment_stardist_default_thresholds_checkbox,
+                        default_thresholds_tooltip,
+                    )
+                )
 
-            self._segment_stardist_container = Container(
-                widgets=[
-                    self._segment_stardist_model_path,
-                    default_thresholds_container,
-                    self._prob_threshold_container,
-                    self._nms_threshold_container,
-                ],
-                labels=False,
-            )
+                self._segment_stardist_prob_threshold_slider = create_widget(
+                    widget_type="FloatSlider",
+                    label="Prob threshold",
+                    options={"min": 0, "max": 1, "value": 0.5},
+                )
+
+                prob_threshold_tooltip = (
+                    "Threshold above which a pixel from the probability map is\n"
+                    "considered as being a center candidate.\n"
+                    "Lower values will result in more objects."
+                )
+
+                self._prob_threshold_container = (
+                    self._add_tooltip_button_to_container(
+                        self._segment_stardist_prob_threshold_slider,
+                        prob_threshold_tooltip,
+                    )
+                )
+                self._prob_threshold_container.enabled = False
+
+                self._segment_stardist_nms_threshold_slider = create_widget(
+                    widget_type="FloatSlider",
+                    label="NMS threshold",
+                    options={"min": 0, "max": 1, "value": 0.4},
+                )
+
+                nms_threshold_tooltip = (
+                    "IoU threshold for non-maximum suppression.\n"
+                    "Higher values will discard redundant candidates better\n"
+                    "but could also remove valid objects that are very close to each other."
+                )
+
+                self._nms_threshold_container = (
+                    self._add_tooltip_button_to_container(
+                        self._segment_stardist_nms_threshold_slider,
+                        nms_threshold_tooltip,
+                    )
+                )
+                self._nms_threshold_container.enabled = False
+
+                self._segment_stardist_default_thresholds_checkbox.changed.connect(
+                    self._update_segment_stardist_thresholds
+                )
+
+                self._segment_stardist_container = Container(
+                    widgets=[
+                        self._segment_stardist_model_path,
+                        default_thresholds_container,
+                        self._prob_threshold_container,
+                        self._nms_threshold_container,
+                    ],
+                    labels=False,
+                )
 
             # Aligning major axis
-            self._align_major_axis_interp_order_combo = create_widget(
-                label="Interp order",
-                options={
-                    "choices": ["Nearest", "Linear", "Cubic"],
-                    "value": "Linear",
-                },
-            )
-
-            self._align_major_axis_interp_order_combo.bind(
-                self._bind_combo_interpolation_order
-            )
-
-            align_major_axis_order_tooltip = "Interpolation order.\n0: Nearest, 1: Linear, 3: Cubic\nBigger means slower"
-
-            align_major_axis_order_container = (
-                self._add_tooltip_button_to_container(
-                    self._align_major_axis_interp_order_combo,
-                    align_major_axis_order_tooltip,
+            if True:
+                self._align_major_axis_interp_order_combo = create_widget(
+                    label="Interp order",
+                    options={
+                        "choices": ["Nearest", "Linear", "Cubic"],
+                        "value": "Linear",
+                    },
                 )
-            )
 
-            self._align_major_axis_rotation_plane_combo = create_widget(
-                label="Rotation plane",
-                options={"choices": ["XY", "XZ", "YZ"], "value": "XY"},
-            )
-
-            self._align_major_axis_rotation_plane_combo.changed.connect(
-                self._update_target_axis_choices
-            )
-
-            align_major_axis_rotation_plane_tooltip = (
-                "2D plane in which the major axis of the mask will be computed,\n"
-                "and the rotation will be applied."
-            )
-
-            align_major_axis_rotation_plane_container = (
-                self._add_tooltip_button_to_container(
-                    self._align_major_axis_rotation_plane_combo,
-                    align_major_axis_rotation_plane_tooltip,
+                self._align_major_axis_interp_order_combo.bind(
+                    self._bind_combo_interpolation_order
                 )
-            )
 
-            self._align_major_axis_target_axis_combo = create_widget(
-                label="Target axis",
-                options={"choices": ["Y", "X"]},
-            )
+                align_major_axis_order_tooltip = "Interpolation order.\n0: Nearest, 1: Linear, 3: Cubic\nBigger means slower"
 
-            align_major_axis_target_axis_tooltip = (
-                "Axis to align the major axis of the mask with."
-            )
-
-            align_major_axis_target_axis_container = (
-                self._add_tooltip_button_to_container(
-                    self._align_major_axis_target_axis_combo,
-                    align_major_axis_target_axis_tooltip,
+                align_major_axis_order_container = (
+                    self._add_tooltip_button_to_container(
+                        self._align_major_axis_interp_order_combo,
+                        align_major_axis_order_tooltip,
+                    )
                 )
-            )
 
-            self._align_major_axis_container = Container(
-                widgets=[
-                    align_major_axis_order_container,
-                    align_major_axis_rotation_plane_container,
-                    align_major_axis_target_axis_container,
-                ],
-                labels=False,
-            )
+                self._align_major_axis_rotation_plane_combo = create_widget(
+                    label="Rotation plane",
+                    options={"choices": ["XY", "XZ", "YZ"], "value": "XY"},
+                )
+
+                self._align_major_axis_rotation_plane_combo.changed.connect(
+                    self._update_target_axis_choices
+                )
+
+                align_major_axis_rotation_plane_tooltip = (
+                    "2D plane in which the major axis of the mask will be computed,\n"
+                    "and the rotation will be applied."
+                )
+
+                align_major_axis_rotation_plane_container = (
+                    self._add_tooltip_button_to_container(
+                        self._align_major_axis_rotation_plane_combo,
+                        align_major_axis_rotation_plane_tooltip,
+                    )
+                )
+
+                self._align_major_axis_target_axis_combo = create_widget(
+                    label="Target axis",
+                    options={"choices": ["Y", "X"]},
+                )
+
+                align_major_axis_target_axis_tooltip = (
+                    "Axis to align the major axis of the mask with."
+                )
+
+                align_major_axis_target_axis_container = (
+                    self._add_tooltip_button_to_container(
+                        self._align_major_axis_target_axis_combo,
+                        align_major_axis_target_axis_tooltip,
+                    )
+                )
+
+                self._align_major_axis_container = Container(
+                    widgets=[
+                        align_major_axis_order_container,
+                        align_major_axis_rotation_plane_container,
+                        align_major_axis_target_axis_container,
+                    ],
+                    labels=False,
+                )
 
             # Removing labels outside of mask
-            self._remove_labels_outside_of_mask_container = Container(
-                widgets=[
-                    EmptyWidget(),
-                ],
-            )
+            if True:
+                self._remove_labels_outside_of_mask_container = Container(
+                    widgets=[
+                        EmptyWidget(),
+                    ],
+                )
 
             # Cropping array using mask
-            self._crop_array_using_mask_margin_checkbox = create_widget(
-                widget_type="CheckBox",
-                options={"value": False},
-                label="Add 1 pixel margin",
-            )
+            if True:
+                self._crop_array_using_mask_margin_checkbox = create_widget(
+                    widget_type="CheckBox",
+                    options={"value": False},
+                    label="Add 1 pixel margin",
+                )
 
-            self._crop_array_using_mask_container = Container(
-                widgets=[
-                    self._crop_array_using_mask_margin_checkbox,
-                    EmptyWidget(),
-                ],
-            )
+                self._crop_array_using_mask_container = Container(
+                    widgets=[
+                        self._crop_array_using_mask_margin_checkbox,
+                        EmptyWidget(),
+                    ],
+                )
 
             # Masked gaussian smoothing
-            self._masked_smoothing_sigma_slider = create_widget(
-                widget_type="FloatSlider",
-                label="Sigma",
-                options={"min": 1, "max": 50, "value": 1},
-            )
-
-            masked_smoothing_sigma_tooltip = (
-                "Standard deviation of the Gaussian kernel used for smoothing.\n"
-                "Defines the spatial scale of the result."
-            )
-
-            masked_smoothing_sigma_container = (
-                self._add_tooltip_button_to_container(
-                    self._masked_smoothing_sigma_slider,
-                    masked_smoothing_sigma_tooltip,
+            if True:
+                self._masked_smoothing_sigma_slider = create_widget(
+                    widget_type="FloatSlider",
+                    label="Sigma",
+                    options={"min": 1, "max": 50, "value": 1},
                 )
-            )
 
-            self._masked_gaussian_smoothing_container = Container(
-                widgets=[
-                    Label(value="Currently, the function is only implemented"),
-                    Label(value="for dense smoothing of images."),
-                    EmptyWidget(),
-                    masked_smoothing_sigma_container,
-                ],
-                labels=False,
-            )
+                masked_smoothing_sigma_tooltip = (
+                    "Standard deviation of the Gaussian kernel used for smoothing.\n"
+                    "Defines the spatial scale of the result."
+                )
+
+                masked_smoothing_sigma_container = (
+                    self._add_tooltip_button_to_container(
+                        self._masked_smoothing_sigma_slider,
+                        masked_smoothing_sigma_tooltip,
+                    )
+                )
+
+                self._masked_gaussian_smoothing_container = Container(
+                    widgets=[
+                        Label(
+                            value="Currently, the function is only implemented"
+                        ),
+                        Label(value="for dense smoothing of images."),
+                        EmptyWidget(),
+                        masked_smoothing_sigma_container,
+                    ],
+                    labels=False,
+                )
 
             self._func_name_to_func = {
-                "reorganize_array_dimension": reorganize_array_dimension,
+                "reorganize_array_dimensions": reorganize_array_dimensions,
                 "change_array_pixelsize": change_array_pixelsize,
                 "compute_mask": compute_mask,
                 "global_image_equalization": global_image_equalization,
@@ -867,6 +927,7 @@ class TapenadeProcessingWidget(QWidget):
             }
 
             self._adjective_dict = {
+                "reorganize_array_dimensions": "reorganized",
                 "change_array_pixelsize": "rescaled",
                 "compute_mask": "mask",
                 "global_image_equalization": "equalized",
@@ -1172,8 +1233,6 @@ class TapenadeProcessingWidget(QWidget):
         self._disable_irrelevant_layers(0)
         self._update_layer_combos()
 
-        self._macro_graph = None
-
     def _update_local_global_equalization(self, event):
         self._local_norm_box_size_container.enabled = not event
 
@@ -1190,7 +1249,7 @@ class TapenadeProcessingWidget(QWidget):
         if isinstance(container, Container):
             container.append(button)
         else:
-            if isinstance(container, CheckBox):
+            if isinstance(container, CheckBox | PushButton):
                 container = Container(
                     widgets=[container, button],
                     labels=False,
@@ -1227,6 +1286,8 @@ class TapenadeProcessingWidget(QWidget):
             return None
 
     def _update_layer_combos(self):
+
+        # self._array_layer_combo.native.blockSignals(True)
 
         ### 1. Clear all combos but keep the previous choice if possible
         previous_texts = []
@@ -1300,6 +1361,8 @@ class TapenadeProcessingWidget(QWidget):
                     c.native.setCurrentText(previous_texts[index_c])
             else:
                 c.native.setCurrentIndex(0)
+
+        # self._array_layer_combo.native.blockSignals(False)
 
     def _manage_macro_widget(self):
         path = str(self._record_parameters_path.value)
@@ -1380,25 +1443,28 @@ class TapenadeProcessingWidget(QWidget):
         if layer is None:
             msg = "Please select a layer"
             napari.utils.notifications.show_warning(msg)
-            raise ValueError(msg)
+            # raise ValueError(msg)
+            return None, None
 
         if layer.data.ndim not in (3, 4, 5):
             msg = "The layer must be 3D (ZYX) or 3D+time (TZYX) or 3D+channels+time (CTZYX)"
             napari.utils.notifications.show_warning(msg)
-            raise ValueError(msg)
+            # raise ValueError(msg)
+            return None, None
 
         layer_type = self._identify_layer_type(layer)
         if layer_type not in allowed_types:
             msg = f"The layer must be part of {allowed_types}"
             napari.utils.notifications.show_warning(msg)
-            raise ValueError(msg)
+            # raise ValueError(msg)
+            return None, None
 
         return layer, layer_type
 
-    def _transmissive_image_layer_properties(
-        self, layer: "napari.layers.Image"
+    def _transmissible_image_layer_properties(
+        self, layer: "napari.layers.Image", exclude: list = []
     ):
-        return {
+        properties = {
             "contrast_limits": layer.contrast_limits,
             "gamma": layer.gamma,
             "colormap": layer.colormap,
@@ -1406,8 +1472,10 @@ class TapenadeProcessingWidget(QWidget):
             "opacity": layer.opacity,
         }
 
-    def _transmissive_labels_layer_properties(
-        self, layer: "napari.layers.Labels"
+        return {k: v for k, v in properties.items() if not (k in exclude)}
+
+    def _transmissible_labels_layer_properties(
+        self, layer: "napari.layers.Labels", exclude: list = []
     ):
         return {
             "colormap": layer.colormap,
@@ -1420,6 +1488,9 @@ class TapenadeProcessingWidget(QWidget):
         layer, layer_type = self._assert_basic_layer_properties(
             self._array_layer_combo.value, ["Image", "Labels"]
         )
+        if layer is None:
+            return
+
         if layer.data.dtype == bool:
             layer_type = "Mask"
 
@@ -1445,7 +1516,9 @@ class TapenadeProcessingWidget(QWidget):
 
         start_time = time.time()
         result_array = change_array_pixelsize(layer.data, **func_params)
-        print(f"Array rescaling took {time.time() - start_time} seconds")
+        napari.utils.notifications.show_info(
+            f"Array rescaling took {time.time() - start_time} seconds"
+        )
 
         old_name = layer.name
         name = f"{old_name}_{self._adjective_dict['change_array_pixelsize']}"
@@ -1458,13 +1531,13 @@ class TapenadeProcessingWidget(QWidget):
                 self._viewer.add_image(
                     result_array,
                     name=name,
-                    **self._transmissive_image_layer_properties(layer),
+                    **self._transmissible_image_layer_properties(layer),
                 )
             else:
                 self._viewer.add_labels(
                     result_array,
                     name=name,
-                    **self._transmissive_labels_layer_properties(layer),
+                    **self._transmissible_labels_layer_properties(layer),
                 )
             self._array_layer_combo.native.setCurrentIndex(
                 self._array_layer_combo.native.count() - 1
@@ -1486,70 +1559,169 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
+
+    def _dim_from_duplicate_suffix(self, name):
+        return int(name.split("dim ")[-1].split(")")[0])
+
+    def _remove_duplicate_suffix(self, name):
+        return name.split(" (")[0]
+
+    def _dims_str_from_shape(
+        self, array_shape, nb_channels, nb_timepoints, nb_depth, nb_Y, nb_X
+    ):
+        dimensions_as_string = "CTZYX"
+        ordered_shape = [nb_channels, nb_timepoints, nb_depth, nb_Y, nb_X]
+        is_duplicate_list = [" " in elem for elem in ordered_shape]
+
+        if nb_channels == "None":
+            dimensions_as_string = dimensions_as_string.replace("C", "")
+        if nb_timepoints == "None":
+            dimensions_as_string = dimensions_as_string.replace("T", "")
+        if nb_depth == "None":
+            dimensions_as_string = dimensions_as_string.replace("Z", "")
+
+        inds_transpose = []
+
+        for s, is_duplicate in zip(ordered_shape, is_duplicate_list):
+            if s == "None":
+                pass
+            elif is_duplicate:
+                ind_dim = self._dim_from_duplicate_suffix(s)
+                inds_transpose.append(ind_dim)
+            else:
+                inds_transpose.append(array_shape.index(int(s)))
+
+        inds_transpose = np.argsort(inds_transpose)
+        dimensions_as_string = "".join(
+            [dimensions_as_string[ind] for ind in inds_transpose]
+        )
+
+        return dimensions_as_string
 
     def _run_organize_array_dimensions(self):
 
-        layer, _ = self._assert_basic_layer_properties(
+        layer, layer_type = self._assert_basic_layer_properties(
             self._array_layer_combo.value, ["Image", "Labels"]
         )
+        if layer is None:
+            return
+
+        nb_channels = self._reorganize_dims_nb_channels_combobox.value
+        nb_timepoints = self._reorganize_dims_nb_timepoints_combobox.value
+        nb_depth = self._reorganize_dims_depth_combobox.value
+        nb_Y = self._reorganize_dims_Y_combobox.value
+        nb_X = self._reorganize_dims_X_combobox.value
+
+        dimensions_as_string = self._dims_str_from_shape(
+            layer.data.shape, nb_channels, nb_timepoints, nb_depth, nb_Y, nb_X
+        )
+
         func_params = {
-            "nb_channels": self._reorganize_dims_nb_channels_combobox.value,
-            "nb_depth": self._reorganize_dims_depth_combobox.value,
-            "nb_Y": self._reorganize_dims_Y_combobox.value,
-            "nb_X": self._reorganize_dims_X_combobox.value,
-            "nb_timepoints": self._reorganize_dims_nb_timepoints_combobox.value,
             "bool_seperate_channels": self._reorganize_dims_separate_channels_checkbox.value,
-            "shape_as_string": "None",
+            "dimensions_as_string": dimensions_as_string,
         }
 
         shape = [str(i) for i in layer.data.shape] + ["None"] * (
             5 - len(layer.data.shape)
         )
         selected_dims = [
-            str(i)
+            self._remove_duplicate_suffix(i)
             for i in [
-                func_params["nb_channels"],
-                func_params["nb_depth"],
-                func_params["nb_Y"],
-                func_params["nb_X"],
-                func_params["nb_timepoints"],
+                nb_channels,
+                nb_timepoints,
+                nb_depth,
+                nb_Y,
+                nb_X,
             ]
         ]
         if sorted(selected_dims) != sorted(
             shape
         ):  # if dimensions do not match, e.g if the same dim is selected 2 times
-            msg = "Dimensions selected do not match the shape of the image"
-            print(np.sort(selected_dims), np.sort(shape))
+            msg = (
+                "Dimensions selected do not match the shape of the image"
+                f"{np.sort(selected_dims)} != {np.sort(shape)}\n"
+            )
             napari.utils.notifications.show_warning(msg)
-            raise ValueError(msg)
+            return
 
         start_time = time.time()
-        result_array = reorganize_array_dimension(layer.data, **func_params)
-        # if the user chose to remove original image
-        if not self._reorganize_dims_keep_original_image_checkbox.value:
+        reorganized_array = reorganize_array_dimensions(
+            layer.data, **func_params
+        )
+        napari.utils.notifications.show_info(
+            f"Reorganization of array dimensions took {time.time() - start_time} seconds"
+        )
+
+        old_name = layer.name
+        name = (
+            f"{old_name}_{self._adjective_dict['reorganize_array_dimensions']}"
+        )
+
+        if func_params["bool_seperate_channels"]:
+            for index, channel_array in enumerate(
+                reorganized_array
+            ):  # adding all image from the output list of function transpose_and_split_stack
+                if layer_type == "Image":
+                    self._viewer.add_image(
+                        channel_array,
+                        name=f"{layer.name}_ch{index}",
+                        **self._transmissible_image_layer_properties(
+                            layer, exclude=["contrast_limits"]
+                        ),
+                    )
+                elif layer_type == "Labels":
+                    self._viewer.add_labels(
+                        channel_array,
+                        name=f"{layer.name}_ch{index}",
+                        **self._transmissible_labels_layer_properties(layer),
+                    )
+                else:
+                    raise ValueError("Layer type not recognized")
+        elif self._overwrite_checkbox.value:
+            layer.data = reorganized_array
+            layer.name = name
+        else:
+            if layer_type == "Image":
+                self._viewer.add_image(
+                    reorganized_array,
+                    name=name,
+                    **self._transmissible_image_layer_properties(layer),
+                )
+            elif layer_type == "Labels":
+                self._viewer.add_labels(
+                    reorganized_array,
+                    name=f"{layer.name}_ch{index}",
+                    **self._transmissible_labels_layer_properties(layer),
+                )
+            else:
+                raise ValueError("Layer type not recognized")
+        if self._reorganize_dims_keep_original_image_checkbox.value and not self._overwrite_checkbox.value:
             print("removing original image")
             self._viewer.layers.remove(layer)
 
-        for index, im in enumerate(
-            result_array
-        ):  # adding all image from the output list of function transpose_and_split_stack
-            self._viewer.add_image(
-                im,
-                name=f"{layer.name}_{index}",
-                **self._transmissive_image_layer_properties(layer),
-            )
-
-        print(
-            f"Reorganization of array dimensions took {time.time() - start_time} seconds"
-        )
+        if self._is_recording_parameters:
+                
+                input_params_to_layer_names_and_types_dict = {
+                    "array": (old_name, layer_type),
+                }
+                output_params_to_layer_names_and_types_dict = OrderedDict(
+                    [("reorganized_array", (name, layer_type))]
+                )
+                self._recorder.record(
+                    function_name="reorganize_array_dimensions",
+                    func_params=func_params,
+                    main_input_param_name="array",
+                    input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                    output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+                )
 
     def _run_compute_mask(self):
 
         layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ["Image"]
         )
+        if layer is None:
+            return
 
         func_params = {
             "method": self._compute_mask_method_combo.value,
@@ -1563,7 +1735,9 @@ class TapenadeProcessingWidget(QWidget):
 
         start_time = time.time()
         mask = compute_mask(layer.data, **func_params)
-        print(f"Mask computation took {time.time() - start_time} seconds")
+        napari.utils.notifications.show_info(
+            f"Mask computation took {time.time() - start_time} seconds"
+        )
 
         name = f"{layer.name}_{self._adjective_dict['compute_mask']}"
 
@@ -1594,14 +1768,14 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _run_image_equalization(self):
 
         layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ["Image"]
         )
+        if layer is None:
+            return
 
         mask_available = self._mask_layer_combo.value is not None
 
@@ -1609,6 +1783,8 @@ class TapenadeProcessingWidget(QWidget):
             mask_layer, _ = self._assert_basic_layer_properties(
                 self._mask_layer_combo.value, ["Image"]
             )
+            if mask_layer is None:
+                return
             mask_layer_data = mask_layer.data
             assert (
                 mask_layer_data.shape == layer.data.shape
@@ -1632,10 +1808,12 @@ class TapenadeProcessingWidget(QWidget):
             equalized_array = global_image_equalization(
                 layer.data, mask=mask_layer_data, **func_params
             )
-            print(f"Global equalization took {time.time() - start_time} seconds")
+            napari.utils.notifications.show_info(
+                f"Global equalization took {time.time() - start_time} seconds"
+            )
 
         else:
-                
+
             func_name = "local_image_equalization"
 
             func_params = {
@@ -1649,18 +1827,18 @@ class TapenadeProcessingWidget(QWidget):
             equalized_array = local_image_equalization(
                 layer.data, mask=mask_layer_data, **func_params
             )
-            print(f"Local equalization took {time.time() - start_time} seconds")
+            napari.utils.notifications.show_info(
+                f"Local equalization took {time.time() - start_time} seconds"
+            )
 
-        name = (
-            f"{layer.name}_{self._adjective_dict[func_name]}"
-        )
+        name = f"{layer.name}_{self._adjective_dict[func_name]}"
 
         if self._overwrite_checkbox.value:
             layer.data = equalized_array
             layer.contrast_limits = (0, 1)
             layer.name = name
         else:
-            image_properties = self._transmissive_image_layer_properties(layer)
+            image_properties = self._transmissible_image_layer_properties(layer)
             image_properties["contrast_limits"] = (0, 1)
             self._viewer.add_image(
                 equalized_array,
@@ -1692,18 +1870,19 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
-
     def _run_normalize_intensity(self):
 
         layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ["Image"]
         )
+        if layer is None:
+            return
 
         ref_layer, _ = self._assert_basic_layer_properties(
             self._ref_image_layer_combo.value, ["Image"]
         )
+        if ref_layer is None:
+            return
 
         mask_available = self._mask_layer_combo.value is not None
 
@@ -1711,6 +1890,8 @@ class TapenadeProcessingWidget(QWidget):
             mask_layer, _ = self._assert_basic_layer_properties(
                 self._mask_layer_combo.value, ["Image"]
             )
+            if mask_layer is None:
+                return
             mask_layer_data = mask_layer.data
             assert (
                 mask_layer_data.shape == layer.data.shape
@@ -1724,6 +1905,8 @@ class TapenadeProcessingWidget(QWidget):
             labels_layer, _ = self._assert_basic_layer_properties(
                 self._labels_layer_combo.value, ["Labels"]
             )
+            if labels_layer is None:
+                return
             labels_layer_data = labels_layer.data
             assert (
                 labels_layer_data.shape == layer.data.shape
@@ -1750,7 +1933,7 @@ class TapenadeProcessingWidget(QWidget):
             labels=labels_layer_data,
             **func_params,
         )
-        print(
+        napari.utils.notifications.show_info(
             f"intensity normalization took {time.time() - start_time} seconds"
         )
 
@@ -1767,7 +1950,7 @@ class TapenadeProcessingWidget(QWidget):
             self._viewer.add_image(
                 normalized_image,
                 name=name,
-                **self._transmissive_image_layer_properties(layer),
+                **self._transmissible_image_layer_properties(layer),
             )
 
             self._image_layer_combo.native.setCurrentIndex(
@@ -1800,14 +1983,13 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
-
     def _run_segment_stardist(self):
 
         image_layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ["Image"]
         )
+        if image_layer is None:
+            return
 
         model_path = str(self._segment_stardist_model_path.value)
 
@@ -1831,14 +2013,13 @@ class TapenadeProcessingWidget(QWidget):
 
         start_time = time.time()
         labels = segment_stardist(image_layer.data, **func_params)
-        print(f"StarDist segmentation took {time.time() - start_time} seconds")
+        napari.utils.notifications.show_info(
+            f"StarDist segmentation took {time.time() - start_time} seconds"
+        )
 
         old_name = image_layer.name
         name = f"{old_name}_{self._adjective_dict['segment_stardist']}"
-        self._viewer.add_labels(
-            labels,
-            name=name
-        )
+        self._viewer.add_labels(labels, name=name)
 
         self._labels_layer_combo.native.setCurrentIndex(
             self._labels_layer_combo.native.count() - 1
@@ -1859,18 +2040,19 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget
-
     def _run_align_major_axis(self):
 
         mask_layer, _ = self._assert_basic_layer_properties(
             self._mask_layer_combo.value, ["Image"]
         )
+        if mask_layer is None:
+            return
 
         array_layer, layer_type = self._assert_basic_layer_properties(
             self._array_layer_combo.value, ["Image", "Labels"]
         )
+        if array_layer is None:
+            return
 
         if array_layer.data.dtype == bool:
             layer_type = "Mask"
@@ -1888,7 +2070,9 @@ class TapenadeProcessingWidget(QWidget):
         )
         if layer_type == "Mask":
             array = array.astype(bool)
-        print(f"Alignment took {time.time() - start_time} seconds")
+        napari.utils.notifications.show_info(
+            f"Alignment took {time.time() - start_time} seconds"
+        )
 
         old_name = array_layer.name
         name = f"{old_name}_{self._adjective_dict['align_array_major_axis']}"
@@ -1901,13 +2085,13 @@ class TapenadeProcessingWidget(QWidget):
                 self._viewer.add_image(
                     array,
                     name=name,
-                    **self._transmissive_image_layer_properties(array_layer),
+                    **self._transmissible_image_layer_properties(array_layer),
                 )
             else:
                 self._viewer.add_labels(
                     array,
                     name=name,
-                    **self._transmissive_labels_layer_properties(array_layer),
+                    **self._transmissible_labels_layer_properties(array_layer),
                 )
             self._array_layer_combo.native.setCurrentIndex(
                 self._array_layer_combo.native.count() - 1
@@ -1930,64 +2114,81 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
+
+    def _add_suffix_to_duplicates(self, dimensions_str: list):
+        """
+        Add a suffix to dimensions that are the same
+        """
+        dimensions_str = [
+            (
+                f"{dim} (dim {i})"
+                if (dim != "None" and dimensions_str.count(dim) > 1)
+                else dim
+            )
+            for i, dim in enumerate(dimensions_str)
+        ]
+        return dimensions_str
 
     def _update_array_reorganization_comboboxes(self, event):
 
-        layer, _ = self._assert_basic_layer_properties(
-            self._array_layer_combo.value, ["Image", "Labels"]
-        )
-        dimensions_str = [str(i) for i in layer.data.shape] + [
-            "None"
-        ]  # choices in the comboboxes
-        if layer.data.ndim == 2:  # YX
-            default_dimensions = [
-                "None",
-                "None",
-                "None",
-                dimensions_str[0],
-                dimensions_str[1],
-            ]
-        elif layer.data.ndim == 3:  # ZYX
-            default_dimensions = [
-                "None",
-                "None",
-                dimensions_str[0],
-                dimensions_str[1],
-                dimensions_str[2],
-            ]
-        elif layer.data.ndim == 4:  # CZYX #
-            default_dimensions = [
-                "None",
-                dimensions_str[1],
-                dimensions_str[0],
-                dimensions_str[2],
-                dimensions_str[3],
-            ]
-            # default_dimensions = [dimensions_str[0], 'None', dimensions_str[1], dimensions_str[2], dimensions_str[3]] # if you rather have time and no channel, uncomment here (TZYX)
-        elif layer.data.ndim == 5:  # CTZYX
-            default_dimensions = [
-                dimensions_str[0],
-                dimensions_str[2],
-                dimensions_str[1],
-                dimensions_str[3],
-                dimensions_str[4],
-            ]
-        else:
-            default_dimensions = ["None", "None", "None", "None", "None"]
+        if self._array_layer_combo.value is not None:
+            layer, _ = self._assert_basic_layer_properties(
+                self._array_layer_combo.value, ["Image", "Labels"]
+            )
+            if layer is None:
+                return
 
-        comboboxes = [
-            self._reorganize_dims_nb_timepoints_combobox,
-            self._reorganize_dims_nb_channels_combobox,
-            self._reorganize_dims_depth_combobox,
-            self._reorganize_dims_Y_combobox,
-            self._reorganize_dims_X_combobox,
-        ]
+            dimensions_str = [str(i) for i in layer.data.shape] + [
+                "None"
+            ]  # choices in the comboboxes
+            dimensions_str = self._add_suffix_to_duplicates(dimensions_str)
+            if layer.data.ndim == 2:  # YX
+                default_dimensions = [
+                    "None",
+                    "None",
+                    "None",
+                    dimensions_str[0],
+                    dimensions_str[1],
+                ]
+            elif layer.data.ndim == 3:  # ZYX
+                default_dimensions = [
+                    "None",
+                    "None",
+                    dimensions_str[0],
+                    dimensions_str[1],
+                    dimensions_str[2],
+                ]
+            elif layer.data.ndim == 4:  # CZYX #
+                default_dimensions = [
+                    "None",
+                    dimensions_str[1],
+                    dimensions_str[0],
+                    dimensions_str[2],
+                    dimensions_str[3],
+                ]
+                # default_dimensions = [dimensions_str[0], 'None', dimensions_str[1], dimensions_str[2], dimensions_str[3]] # if you rather have time and no channel, uncomment here (TZYX)
+            elif layer.data.ndim == 5:  # CTZYX
+                default_dimensions = [
+                    dimensions_str[0],
+                    dimensions_str[2],
+                    dimensions_str[1],
+                    dimensions_str[3],
+                    dimensions_str[4],
+                ]
+            else:
+                default_dimensions = ["None", "None", "None", "None", "None"]
 
-        for combobox, value in zip(comboboxes, default_dimensions):
-            combobox.choices = dimensions_str
-            combobox.value = value
+            comboboxes = [
+                self._reorganize_dims_nb_timepoints_combobox,
+                self._reorganize_dims_nb_channels_combobox,
+                self._reorganize_dims_depth_combobox,
+                self._reorganize_dims_Y_combobox,
+                self._reorganize_dims_X_combobox,
+            ]
+
+            for combobox, value in zip(comboboxes, default_dimensions):
+                combobox.choices = dimensions_str
+                combobox.value = value
 
     def _update_target_axis_choices(self, event):
 
@@ -2006,10 +2207,14 @@ class TapenadeProcessingWidget(QWidget):
         mask_layer, _ = self._assert_basic_layer_properties(
             self._mask_layer_combo.value, ["Image"]
         )
+        if mask_layer is None:
+            return
 
         labels_layer, _ = self._assert_basic_layer_properties(
             self._labels_layer_combo.value, ["Labels"]
         )
+        if labels_layer is None:
+            return
 
         assert (
             mask_layer is not None and labels_layer is not None
@@ -2026,7 +2231,9 @@ class TapenadeProcessingWidget(QWidget):
         labels_cropped = remove_labels_outside_of_mask(
             labels=labels_layer.data, mask=mask_layer.data, **func_params
         )
-        print(f"Removing labels took {time.time() - start_time} seconds")
+        napari.utils.notifications.show_info(
+            f"Removing labels took {time.time() - start_time} seconds"
+        )
 
         old_name = labels_layer.name
         name = f"{old_name}_curated"
@@ -2038,7 +2245,7 @@ class TapenadeProcessingWidget(QWidget):
             self._viewer.add_labels(
                 labels_cropped,
                 name=name,
-                **self._transmissive_labels_layer_properties(labels_layer),
+                **self._transmissible_labels_layer_properties(labels_layer),
             )
             self._labels_layer_combo.native.setCurrentIndex(
                 self._labels_layer_combo.native.count() - 1
@@ -2060,18 +2267,19 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
-
     def _run_crop_array_using_mask(self):
 
         mask_layer, _ = self._assert_basic_layer_properties(
             self._mask_layer_combo.value, ["Image"]
         )
+        if mask_layer is None:
+            return
 
         array_layer, layer_type = self._assert_basic_layer_properties(
             self._array_layer_combo.value, ["Image", "Labels"]
         )
+        if array_layer is None:
+            return
 
         if array_layer.data.dtype == bool:
             layer_type = "Mask"
@@ -2085,7 +2293,9 @@ class TapenadeProcessingWidget(QWidget):
         array = crop_array_using_mask(
             mask=mask_layer.data, array=array_layer.data, **func_params
         )
-        print(f"Cropping took {time.time() - start_time} seconds")
+        napari.utils.notifications.show_info(
+            f"Cropping took {time.time() - start_time} seconds"
+        )
 
         old_name = array_layer.name
         name = f"{old_name}_{self._adjective_dict['crop_array_using_mask']}"
@@ -2098,13 +2308,13 @@ class TapenadeProcessingWidget(QWidget):
                 self._viewer.add_image(
                     array,
                     name=name,
-                    **self._transmissive_image_layer_properties(array_layer),
+                    **self._transmissible_image_layer_properties(array_layer),
                 )
             else:
                 self._viewer.add_labels(
                     array,
                     name=name,
-                    **self._transmissive_labels_layer_properties(array_layer),
+                    **self._transmissible_labels_layer_properties(array_layer),
                 )
             self._array_layer_combo.native.setCurrentIndex(
                 self._array_layer_combo.native.count() - 1
@@ -2128,14 +2338,13 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-            if self._macro_graph is not None:
-                self._update_graph_widget()
-
     def _run_masked_gaussian_smoothing(self):
 
         layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ["Image"]
         )
+        if layer is None:
+            return
 
         mask_available = self._mask_layer_combo.value is not None
 
@@ -2143,6 +2352,8 @@ class TapenadeProcessingWidget(QWidget):
             mask_layer, _ = self._assert_basic_layer_properties(
                 self._mask_layer_combo.value, ["Image"]
             )
+            if mask_layer is None:
+                return
             mask_layer_data = mask_layer.data
             assert (
                 mask_layer_data.shape == layer.data.shape
@@ -2158,6 +2369,8 @@ class TapenadeProcessingWidget(QWidget):
             mask_for_volume_layer, _ = self._assert_basic_layer_properties(
                 self._mask_for_volume_layer_combo.value, ["Image"]
             )
+            if mask_for_volume_layer is None:
+                return
             mask_for_volume_layer_data = mask_for_volume_layer.data
             assert (
                 mask_for_volume_layer_data.shape == layer.data.shape
@@ -2179,7 +2392,9 @@ class TapenadeProcessingWidget(QWidget):
             mask_for_volume=mask_for_volume_layer_data,
             **func_params,
         )
-        print(f"Smoothing took {time.time() - start_time} seconds")
+        napari.utils.notifications.show_info(
+            f"Smoothing took {time.time() - start_time} seconds"
+        )
 
         name = (
             f"{layer.name}_{self._adjective_dict['masked_gaussian_smoothing']}"
@@ -2193,7 +2408,7 @@ class TapenadeProcessingWidget(QWidget):
             self._viewer.add_image(
                 smoothed_array,
                 name=name,
-                **self._transmissive_image_layer_properties(layer),
+                **self._transmissible_image_layer_properties(layer),
             )
             self._image_layer_combo.native.setCurrentIndex(
                 self._image_layer_combo.native.count() - 1
@@ -2209,7 +2424,9 @@ class TapenadeProcessingWidget(QWidget):
                     "Image",
                 )
             if mask_for_volume_available:
-                input_params_to_layer_names_and_types_dict["mask_for_volume"] = (
+                input_params_to_layer_names_and_types_dict[
+                    "mask_for_volume"
+                ] = (
                     mask_for_volume_layer.name,
                     "Image",
                 )
@@ -2223,9 +2440,6 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
-            if self._macro_graph is not None:
-                self._update_graph_widget()
 
     def _reset_macro_widgets(self):
         self._macro_widgets = {}
@@ -2431,7 +2645,7 @@ class TapenadeProcessingWidget(QWidget):
                     desc=f"Processing {function_name}",
                 )
 
-        napari.utils.notifications.show_info("Macro processing finished")
+        napari.utils.notifications.show_info("Macro processing finished!")
 
     def _create_folder_if_needed(self, folder_path):
         if not os.path.exists(folder_path):
