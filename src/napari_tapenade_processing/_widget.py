@@ -44,6 +44,7 @@ from tapenade.preprocessing import (
     masked_gaussian_smoothing,
     normalize_intensity,
     reorganize_array_dimensions,
+    reorganize_array_dimensions_from_files,
     segment_stardist,
     segment_stardist_from_files,
 )
@@ -222,7 +223,7 @@ class TapenadeProcessingWidget(QWidget):
             if True:
                 self._refresh_dims_button = create_widget(
                     widget_type="PushButton",
-                    label="Refresh dimensions from array",
+                    label="Refresh displayed array dimensions",
                 )
 
                 self._refresh_dims_button.clicked.connect(
@@ -230,8 +231,9 @@ class TapenadeProcessingWidget(QWidget):
                 )
 
                 refresh_dims_tooltip = (
-                    "Refresh the dimensions values in the boxes\n"
-                    "based on the currently selected array."
+                    "Click refresh if the dimensions in the boxes\n"
+                    "below don't match the expected dimensions of\n"
+                    "the currently selected array."
                 )
 
                 refresh_dims_container = self._add_tooltip_button_to_container(
@@ -312,8 +314,8 @@ class TapenadeProcessingWidget(QWidget):
                 )
                 keep_original_image_checkbox_tooltip = (
                     "If unclicked, the original image will be deleted.\n"
-                    "This can be useful to prevent napari dimension sliders\n"
-                    "from being confusing."
+                    "This can be useful to prevent Napari dimension sliders\n"
+                    "from becoming confusing."
                 )
 
                 # self._array_layer_combo.changed.connect(self._update_layer_combos)
@@ -1658,13 +1660,16 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         if func_params["bool_seperate_channels"]:
-            for index, channel_array in enumerate(
-                reorganized_array
-            ):  # adding all image from the output list of function transpose_and_split_stack
+            channel_names = [
+                f"{name}_ch{index}"
+                for index in range(reorganized_array.shape[0])
+            ]
+
+            for channel_name, channel_array in zip(channel_names, reorganized_array):
                 if layer_type == "Image":
                     self._viewer.add_image(
                         channel_array,
-                        name=f"{layer.name}_ch{index}",
+                        name=channel_name,
                         **self._transmissible_image_layer_properties(
                             layer, exclude=["contrast_limits"]
                         ),
@@ -1672,7 +1677,7 @@ class TapenadeProcessingWidget(QWidget):
                 elif layer_type == "Labels":
                     self._viewer.add_labels(
                         channel_array,
-                        name=f"{layer.name}_ch{index}",
+                        name=channel_name,
                         **self._transmissible_labels_layer_properties(layer),
                     )
                 else:
@@ -1690,7 +1695,7 @@ class TapenadeProcessingWidget(QWidget):
             elif layer_type == "Labels":
                 self._viewer.add_labels(
                     reorganized_array,
-                    name=f"{layer.name}_ch{index}",
+                    name=name,
                     **self._transmissible_labels_layer_properties(layer),
                 )
             else:
@@ -1704,9 +1709,17 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict = {
                     "array": (old_name, layer_type),
                 }
-                output_params_to_layer_names_and_types_dict = OrderedDict(
-                    [("reorganized_array", (name, layer_type))]
-                )
+                if func_params["bool_seperate_channels"]:
+                    output_params_to_layer_names_and_types_dict = OrderedDict(
+                        [
+                            (f"reorganized_array_ch{index}", (channel_name, layer_type))
+                            for index, channel_name in enumerate(channel_names)
+                        ]
+                    )
+                else:
+                    output_params_to_layer_names_and_types_dict = OrderedDict(
+                        [("reorganized_array", (name, layer_type))]
+                    )
                 self._recorder.record(
                     function_name="reorganize_array_dimensions",
                     func_params=func_params,
@@ -2496,10 +2509,14 @@ class TapenadeProcessingWidget(QWidget):
 
             self._macro_tab_container.extend(
                 [
+                    EmptyWidget(),
                     Label(value="Path to save outputs folders of tifs:"),
                     self._run_macro_save_path,
+                    EmptyWidget(),
                     self._run_macro_compress_checkbox,
-                    self._run_macro_save_all_checkbox,
+                    # self._run_macro_save_all_checkbox,
+                    EmptyWidget(),
+                    Label(value="Don't forget to update the jobs slider!"),
                     self._run_macro_button,
                 ]
             )
@@ -2600,6 +2617,26 @@ class TapenadeProcessingWidget(QWidget):
                 ):
                     parallel_function(i)
             # * functions that need special wrapping (e.g cropping)
+            elif function_name == "reorganize_array_dimensions":
+                if func_params["bool_seperate_channels"]:
+                    output_id = next(
+                        iter(output_params_to_layer_ids_dict.values())
+                    )
+                    output_folders = layer_id_to_folder_path_dict[output_id]
+                else:
+                    output_ids = list(output_params_to_layer_ids_dict.values())
+                    output_folders = [
+                        layer_id_to_folder_path_dict[output_id]
+                        for output_id in output_ids
+                    ]
+                output_folder = layer_id_to_folder_path_dict[output_id]
+                reorganize_array_dimensions_from_files(
+                    input_params_to_list_of_tifpaths_dict["array"],
+                    output_folders,
+                    compress_params,
+                    func_params,
+                )
+                
             elif function_name == "crop_array_using_mask":
                 output_id = next(
                     iter(output_params_to_layer_ids_dict.values())
@@ -2625,6 +2662,8 @@ class TapenadeProcessingWidget(QWidget):
                     func_params,
                 )
             elif function_name == "segment_stardist":
+                # stardist is ran sequentially but needs special
+                # wrapping for gpu memory management
                 output_id = next(
                     iter(output_params_to_layer_ids_dict.values())
                 )
