@@ -17,8 +17,8 @@ from magicgui.widgets import (
     Container,
     EmptyWidget,
     Label,
-    create_widget,
     PushButton,
+    create_widget,
 )
 from napari.layers import Image
 from natsort import natsorted
@@ -1474,7 +1474,7 @@ class TapenadeProcessingWidget(QWidget):
             "opacity": layer.opacity,
         }
 
-        return {k: v for k, v in properties.items() if not (k in exclude)}
+        return {k: v for k, v in properties.items() if k not in exclude}
 
     def _transmissible_labels_layer_properties(
         self, layer: "napari.layers.Labels", exclude: list = []
@@ -1560,7 +1560,6 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
 
     def _dim_from_duplicate_suffix(self, name):
         return int(name.split("dim ")[-1].split(")")[0])
@@ -1665,7 +1664,9 @@ class TapenadeProcessingWidget(QWidget):
                 for index in range(reorganized_array.shape[0])
             ]
 
-            for channel_name, channel_array in zip(channel_names, reorganized_array):
+            for channel_name, channel_array in zip(
+                channel_names, reorganized_array
+            ):
                 if layer_type == "Image":
                     self._viewer.add_image(
                         channel_array,
@@ -1700,33 +1701,39 @@ class TapenadeProcessingWidget(QWidget):
                 )
             else:
                 raise ValueError("Layer type not recognized")
-        if self._reorganize_dims_keep_original_image_checkbox.value and not self._overwrite_checkbox.value:
+        if (
+            self._reorganize_dims_keep_original_image_checkbox.value
+            and not self._overwrite_checkbox.value
+        ):
             print("removing original image")
             self._viewer.layers.remove(layer)
 
         if self._is_recording_parameters:
-                
-                input_params_to_layer_names_and_types_dict = {
-                    "array": (old_name, layer_type),
-                }
-                if func_params["bool_seperate_channels"]:
-                    output_params_to_layer_names_and_types_dict = OrderedDict(
-                        [
-                            (f"reorganized_array_ch{index}", (channel_name, layer_type))
-                            for index, channel_name in enumerate(channel_names)
-                        ]
-                    )
-                else:
-                    output_params_to_layer_names_and_types_dict = OrderedDict(
-                        [("reorganized_array", (name, layer_type))]
-                    )
-                self._recorder.record(
-                    function_name="reorganize_array_dimensions",
-                    func_params=func_params,
-                    main_input_param_name="array",
-                    input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
-                    output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+
+            input_params_to_layer_names_and_types_dict = {
+                "array": (old_name, layer_type),
+            }
+            if func_params["bool_seperate_channels"]:
+                output_params_to_layer_names_and_types_dict = OrderedDict(
+                    [
+                        (
+                            f"reorganized_array_ch{index}",
+                            (channel_name, layer_type),
+                        )
+                        for index, channel_name in enumerate(channel_names)
+                    ]
                 )
+            else:
+                output_params_to_layer_names_and_types_dict = OrderedDict(
+                    [("reorganized_array", (name, layer_type))]
+                )
+            self._recorder.record(
+                function_name="reorganize_array_dimensions",
+                func_params=func_params,
+                main_input_param_name="array",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+            )
 
     def _run_compute_mask(self):
 
@@ -1780,7 +1787,6 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
 
     def _run_image_equalization(self):
 
@@ -1851,7 +1857,9 @@ class TapenadeProcessingWidget(QWidget):
             layer.contrast_limits = (0, 1)
             layer.name = name
         else:
-            image_properties = self._transmissible_image_layer_properties(layer)
+            image_properties = self._transmissible_image_layer_properties(
+                layer
+            )
             image_properties["contrast_limits"] = (0, 1)
             self._viewer.add_image(
                 equalized_array,
@@ -2126,7 +2134,6 @@ class TapenadeProcessingWidget(QWidget):
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
-
 
     def _add_suffix_to_duplicates(self, dimensions_str: list):
         """
@@ -2636,7 +2643,7 @@ class TapenadeProcessingWidget(QWidget):
                     compress_params,
                     func_params,
                 )
-                
+
             elif function_name == "crop_array_using_mask":
                 output_id = next(
                     iter(output_params_to_layer_ids_dict.values())
