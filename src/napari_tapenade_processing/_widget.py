@@ -1660,7 +1660,7 @@ class TapenadeProcessingWidget(QWidget):
 
         if func_params["bool_seperate_channels"]:
             channel_names = [
-                f"{name}_ch{index}" for index in range(nb_channels)
+                f"{name}_ch{index}" for index in range(len(reorganized_array))
             ]
             for channel_name, channel_array in zip(channel_names, reorganized_array):
 
