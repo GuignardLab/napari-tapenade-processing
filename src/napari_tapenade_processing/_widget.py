@@ -1659,14 +1659,9 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         if func_params["bool_seperate_channels"]:
-            channel_names = [
-                f"{name}_ch{index}"
-                for index in range(reorganized_array.shape[0])
-            ]
+            for index, channel_array in enumerate(reorganized_array):
+                channel_name = f"{name}_ch{index}"
 
-            for channel_name, channel_array in zip(
-                channel_names, reorganized_array
-            ):
                 if layer_type == "Image":
                     self._viewer.add_image(
                         channel_array,
