@@ -1659,8 +1659,10 @@ class TapenadeProcessingWidget(QWidget):
         )
 
         if func_params["bool_seperate_channels"]:
-            for index, channel_array in enumerate(reorganized_array):
-                channel_name = f"{name}_ch{index}"
+            channel_names = [
+                f"{name}_ch{index}" for index in range(nb_channels)
+            ]
+            for channel_name, channel_array in zip(channel_names, reorganized_array):
 
                 if layer_type == "Image":
                     self._viewer.add_image(
@@ -1697,7 +1699,7 @@ class TapenadeProcessingWidget(QWidget):
             else:
                 raise ValueError("Layer type not recognized")
         if (
-            self._reorganize_dims_keep_original_image_checkbox.value
+            not self._reorganize_dims_keep_original_image_checkbox.value
             and not self._overwrite_checkbox.value
         ):
             print("removing original image")
