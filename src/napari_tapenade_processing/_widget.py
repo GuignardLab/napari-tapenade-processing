@@ -579,6 +579,29 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
+                self._int_norm_wavelength_combo = create_widget(
+                    label="Image wavelength",
+                    options={
+                        "choices": [
+                            "405 nm (default)",
+                            "488 nm",
+                            "555 nm",
+                            "647 nm",
+                        ],
+                        "value": "405 nm (default)",
+                    },
+                )
+
+                int_norm_wavelength_tooltip = (
+                    "Wavelength of the image. Used to adjust the intensities in the reference layer."
+                )
+
+                int_norm_wavelength_container = (
+                    self._add_tooltip_button_to_container(
+                        self._int_norm_wavelength_combo, int_norm_wavelength_tooltip
+                    )
+                )
+
                 self._int_norm_width_slider = create_widget(
                     widget_type="IntSlider",
                     label="Width of ref plane",
@@ -598,6 +621,7 @@ class TapenadeProcessingWidget(QWidget):
                 self._int_norm_container = Container(
                     widgets=[
                         int_norm_sigma_container,
+                        int_norm_wavelength_container,
                         int_norm_width_container,
                     ],
                     labels=False,
@@ -1935,11 +1959,15 @@ class TapenadeProcessingWidget(QWidget):
         sigma = self._int_norm_sigma_slider.value
         if sigma == 0:
             sigma = None
+
+        image_wavelength = int(self._int_norm_image_wavelength_slider.value.split(" ")[0])
+
         width = self._int_norm_width_slider.value
 
         func_params = {
             "sigma": sigma,
             "width": width,
+            "image_wavelength": image_wavelength,
             "n_jobs": self._n_jobs_slider.value,
         }
 
