@@ -39,8 +39,8 @@ from tapenade.preprocessing import (
     compute_mask,
     crop_array_using_mask,
     crop_array_using_mask_from_files,
-    global_image_equalization,
-    local_image_equalization,
+    global_contrast_enhancement,
+    local_contrast_enhancement,
     masked_gaussian_smoothing,
     normalize_intensity,
     reorganize_array_dimensions,
@@ -494,27 +494,27 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-            # Image equalization
+            # Image contrast enhancement
             if True:
-                self._local_global_equalization_checkbox = create_widget(
+                self._local_global_enhancement_checkbox = create_widget(
                     widget_type="CheckBox",
-                    label="Perform global equalization",
+                    label="Perform global contrast enhancement",
                     options={"value": False},
                 )
 
-                self._local_global_equalization_checkbox.clicked.connect(
-                    self._update_local_global_equalization
+                self._local_global_enhancement_checkbox.clicked.connect(
+                    self._update_local_global_enhancement
                 )
 
-                local_global_equalization_tooltip = (
-                    "If checked, the equalization will be performed globally on the whole image.\n"
-                    "If unchecked, the equalization will be performed locally in boxes of length (2*Box size)+1."
+                local_global_enhancement_tooltip = (
+                    "If checked, the contrast enhancementll be performed globally on the whole image.\n"
+                    "If unchecked, the contrast enhancementll be performed locally in boxes of length (2*Box size)+1."
                 )
 
-                local_global_equalization_container = (
+                local_global_enhancement_container = (
                     self._add_tooltip_button_to_container(
-                        self._local_global_equalization_checkbox,
-                        local_global_equalization_tooltip,
+                        self._local_global_enhancement_checkbox,
+                        local_global_enhancement_tooltip,
                     )
                 )
 
@@ -524,7 +524,7 @@ class TapenadeProcessingWidget(QWidget):
                     options={"min": 3, "max": 25, "value": 10},
                 )
                 local_norm_box_size_tooltip = (
-                    "Size of the box used for the image equalization\n"
+                    "Size of the box used for the image contrast enhancement\n"
                     "A good default is ~ 3/2 * object radius."
                 )
 
@@ -535,27 +535,27 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                self._equalization_percentiles_slider = create_widget(
+                self._enhancement_percentiles_slider = create_widget(
                     widget_type="FloatRangeSlider",
                     label="Percentiles",
                     options={"min": 0, "max": 100, "value": [1, 99]},
                 )
-                equalization_percentiles_tooltip = (
-                    "Percentiles used for the image equalization."
+                enhancement_percentiles_tooltip = (
+                    "Percentiles used for the image contrast enhancement."
                 )
 
-                equalization_percentiles_container = (
+                enhancement_percentiles_container = (
                     self._add_tooltip_button_to_container(
-                        self._equalization_percentiles_slider,
-                        equalization_percentiles_tooltip,
+                        self._enhancement_percentiles_slider,
+                        enhancement_percentiles_tooltip,
                     )
                 )
 
-                self._image_equalization_container = Container(
+                self._contrast_enhancement_container = Container(
                     widgets=[
-                        local_global_equalization_container,
+                        local_global_enhancement_container,
                         self._local_norm_box_size_container,
-                        equalization_percentiles_container,
+                        enhancement_percentiles_container,
                     ],
                     labels=False,
                 )
@@ -841,8 +841,8 @@ class TapenadeProcessingWidget(QWidget):
                 "reorganize_array_dimensions": reorganize_array_dimensions,
                 "change_array_pixelsize": change_array_pixelsize,
                 "compute_mask": compute_mask,
-                "global_image_equalization": global_image_equalization,
-                "local_image_equalization": local_image_equalization,
+                "global_contrast_enhancement": global_contrast_enhancement,
+                "local_contrast_enhancement": local_contrast_enhancement,
                 "align_array_major_axis": align_array_major_axis,
                 "remove_labels_outside_of_mask": remove_labels_outside_of_mask,
                 "crop_array_using_mask": crop_array_using_mask,
@@ -861,8 +861,8 @@ class TapenadeProcessingWidget(QWidget):
                     ("Spectral filtering", self._spectral_filtering_container),
                     ("Compute mask from image", self._compute_mask_container),
                     (
-                        "Image equalization",
-                        self._image_equalization_container,
+                        "Image contrast enhancement",
+                        self._contrast_enhancement_container,
                     ),
                     ("Intensity normalization", self._int_norm_container),
                     (
@@ -898,8 +898,8 @@ class TapenadeProcessingWidget(QWidget):
                     ("Spectral filtering", None),
                     ("Compute mask from image", self._run_compute_mask),
                     (
-                        "Image equalization",
-                        self._run_image_equalization,
+                        "Image contrast enhancement",
+                        self._run_contrast_enhancement,
                     ),
                     ("Intensity normalization", self._run_normalize_intensity),
                     (
@@ -931,7 +931,7 @@ class TapenadeProcessingWidget(QWidget):
                 "Change layer voxelsize": ["array"],
                 "Spectral filtering": [],
                 "Compute mask from image": ["image"],
-                "Image equalization": ["image", "mask"],
+                "Image contrast enhancement": ["image", "mask"],
                 "Intensity normalization": [
                     "image",
                     "ref_image",
@@ -956,8 +956,8 @@ class TapenadeProcessingWidget(QWidget):
                 "reorganize_array_dimensions": "reorganized",
                 "change_array_pixelsize": "rescaled",
                 "compute_mask": "mask",
-                "global_image_equalization": "equalized",
-                "local_image_equalization": "equalized_locally",
+                "global_contrast_enhancement": "enhanced",
+                "local_contrast_enhancement": "enhanced_locally",
                 "align_array_major_axis": "aligned",
                 "remove_labels_outside_of_mask": "curated",
                 "crop_array_using_mask": "cropped",
@@ -1259,7 +1259,7 @@ class TapenadeProcessingWidget(QWidget):
         self._disable_irrelevant_layers(0)
         self._update_layer_combos()
 
-    def _update_local_global_equalization(self, event):
+    def _update_local_global_enhancement(self, event):
         self._local_norm_box_size_container.enabled = not event
 
     def _update_segment_stardist_thresholds(self, event):
@@ -1809,7 +1809,7 @@ class TapenadeProcessingWidget(QWidget):
                 output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
             )
 
-    def _run_image_equalization(self):
+    def _run_contrast_enhancement(self):
 
         layer, _ = self._assert_basic_layer_properties(
             self._image_layer_combo.value, ["Image"]
@@ -1832,11 +1832,11 @@ class TapenadeProcessingWidget(QWidget):
         else:
             mask_layer_data = None
 
-        perc_low, perc_high = self._equalization_percentiles_slider.value
+        perc_low, perc_high = self._enhancement_percentiles_slider.value
 
-        if self._local_global_equalization_checkbox.value:
+        if self._local_global_enhancement_checkbox.value:
 
-            func_name = "global_image_equalization"
+            func_name = "global_contrast_enhancement"
 
             func_params = {
                 "perc_low": perc_low,
@@ -1845,16 +1845,16 @@ class TapenadeProcessingWidget(QWidget):
             }
 
             start_time = time.time()
-            equalized_array = global_image_equalization(
+            enhanced_array = global_contrast_enhancement(
                 layer.data, mask=mask_layer_data, **func_params
             )
             napari.utils.notifications.show_info(
-                f"Global equalization took {time.time() - start_time} seconds"
+                f"Global contrast enhancement took {time.time() - start_time} seconds"
             )
 
         else:
 
-            func_name = "local_image_equalization"
+            func_name = "local_contrast_enhancement"
 
             func_params = {
                 "perc_low": perc_low,
@@ -1864,17 +1864,17 @@ class TapenadeProcessingWidget(QWidget):
             }
 
             start_time = time.time()
-            equalized_array = local_image_equalization(
+            enhanced_array = local_contrast_enhancement(
                 layer.data, mask=mask_layer_data, **func_params
             )
             napari.utils.notifications.show_info(
-                f"Local equalization took {time.time() - start_time} seconds"
+                f"Local contrast enhancement took {time.time() - start_time} seconds"
             )
 
         name = f"{layer.name}_{self._adjective_dict[func_name]}"
 
         if self._overwrite_checkbox.value:
-            layer.data = equalized_array
+            layer.data = enhanced_array
             layer.contrast_limits = (0, 1)
             layer.name = name
         else:
@@ -1883,7 +1883,7 @@ class TapenadeProcessingWidget(QWidget):
             )
             image_properties["contrast_limits"] = (0, 1)
             self._viewer.add_image(
-                equalized_array,
+                enhanced_array,
                 name=name,
                 **image_properties,
             )
@@ -1902,7 +1902,7 @@ class TapenadeProcessingWidget(QWidget):
                     "Image",
                 )
             output_params_to_layer_names_and_types_dict = OrderedDict(
-                [("equalized_image", (name, "Image"))]
+                [("enhanced_image", (name, "Image"))]
             )
             self._recorder.record(
                 function_name=func_name,
