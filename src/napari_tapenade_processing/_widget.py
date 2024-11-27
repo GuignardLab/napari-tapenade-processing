@@ -241,7 +241,7 @@ class TapenadeProcessingWidget(QWidget):
                 )
 
                 self._reorganize_dims_nb_timepoints_combobox = create_widget(
-                    widget_type="ComboBox", label="Number of timepoints:"
+                    widget_type="ComboBox", label="T:"
                 )
 
                 select_nb_timepoints_tooltip = "Number of timepoints."
@@ -253,7 +253,7 @@ class TapenadeProcessingWidget(QWidget):
                 )
 
                 self._reorganize_dims_nb_channels_combobox = create_widget(
-                    widget_type="ComboBox", label="Number of channels:"
+                    widget_type="ComboBox", label="C:"
                 )
                 select_nb_channels_tooltip = "Number of channels."
                 select_nb_channels_container = (
@@ -264,7 +264,7 @@ class TapenadeProcessingWidget(QWidget):
                 )
 
                 self._reorganize_dims_depth_combobox = create_widget(
-                    widget_type="ComboBox", label="Depth:"
+                    widget_type="ComboBox", label="Z:"
                 )
                 select_depth_tooltip = "Number of planes in the Z dimension."
                 select_depth_container = self._add_tooltip_button_to_container(
@@ -273,7 +273,7 @@ class TapenadeProcessingWidget(QWidget):
                 )
 
                 self._reorganize_dims_Y_combobox = create_widget(
-                    widget_type="ComboBox", label="Num. pixels Y:"
+                    widget_type="ComboBox", label="Y:"
                 )
                 select_Y_tooltip = "Number of pixels in the Y dimension."
                 select_Y_container = self._add_tooltip_button_to_container(
@@ -282,7 +282,7 @@ class TapenadeProcessingWidget(QWidget):
                 )
 
                 self._reorganize_dims_X_combobox = create_widget(
-                    widget_type="ComboBox", label="Num. pixels X:"
+                    widget_type="ComboBox", label="X:"
                 )
                 select_X_tooltip = "Number of pixels in the X dimension."
                 select_X_container = self._add_tooltip_button_to_container(
@@ -304,6 +304,8 @@ class TapenadeProcessingWidget(QWidget):
                         separate_channels_checkbox_tooltip,
                     )
                 )
+
+                separate_channels_container.margins = (0,)*4
 
                 self._reorganize_dims_keep_original_image_checkbox = (
                     create_widget(
@@ -333,14 +335,58 @@ class TapenadeProcessingWidget(QWidget):
                         keep_original_image_checkbox_tooltip,
                     )
                 )
+
+                keep_original_image_container.margins = (0,)*4
+
+                T_container = Container(
+                    widgets=[
+                        select_nb_timepoints_container,
+                        EmptyWidget(),
+                    ],
+                    layout="horizontal",
+                    labels=False,
+                )
+
+                T_container.margins = (0,)*4
+
+                CZ_container = Container(
+                    widgets=[
+                        select_nb_channels_container,
+                        select_depth_container,
+                    ],
+                    layout="horizontal",
+                    labels=False,
+                )
+
+                CZ_container.margins = (0,)*4
+
+                YX_container = Container(
+                    widgets=[
+                        select_Y_container,
+                        select_X_container,
+                    ],
+                    layout="horizontal",
+                    labels=False,
+                )
+
+                YX_container.margins = (0,)*4
+
+                print(T_container.margins)
+                print('---')
+                # print(T_container.native.margins)
+
                 self._organize_array_dimensions = Container(
                     widgets=[
                         refresh_dims_container,
-                        select_nb_timepoints_container,
-                        select_nb_channels_container,
-                        select_depth_container,
-                        select_Y_container,
-                        select_X_container,
+                        # TCZ_container,
+                        # select_nb_timepoints_container,
+                        T_container,
+                        # select_nb_channels_container,
+                        # select_depth_container,
+                        CZ_container,
+                        # select_Y_container,
+                        # select_X_container,
+                        YX_container,
                         separate_channels_container,
                         keep_original_image_container,
                     ],
@@ -398,6 +444,8 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
+                compute_mask_sigma_blur_container.margins = (0,)*4
+
                 self._compute_mask_threshold_factor_slider = create_widget(
                     widget_type="FloatSlider",
                     label="Threshold factor",
@@ -415,6 +463,8 @@ class TapenadeProcessingWidget(QWidget):
                         compute_mask_threshold_factor_tooltip,
                     )
                 )
+
+                compute_mask_threshold_factor_container.margins = (0,)*4
 
                 # self._convex_hull_checkbox = create_widget(
                 #     widget_type="CheckBox",
@@ -465,6 +515,8 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
+                keep_largest_cc_container.margins = (0,)*4
+
                 self._registered_image_checkbox = create_widget(
                     widget_type="CheckBox",
                     label="Registered image",
@@ -481,6 +533,8 @@ class TapenadeProcessingWidget(QWidget):
                         registered_image_tooltip,
                     )
                 )
+
+                registered_image_container.margins = (0,)*4
 
                 self._compute_mask_container = Container(
                     widgets=[
@@ -1166,7 +1220,7 @@ class TapenadeProcessingWidget(QWidget):
         #     widget_type="Label", label=f'<img src="{logo_path}"></img>'
         # )
         pixmap = QPixmap(logo_path)
-        pixmap = pixmap.scaled(150, 112, transformMode=Qt.SmoothTransformation)
+        pixmap = pixmap.scaled(80, 60, transformMode=Qt.SmoothTransformation)
         label = QLabel()
         label.setPixmap(pixmap)
 
@@ -1183,7 +1237,7 @@ class TapenadeProcessingWidget(QWidget):
                     value="<small>This plugin is part of TAPENADE.<br>"
                     f"Using it in your research ?<br>"
                     f'Please <a href="{link_DOI}" style="color:gray;">cite us</a>.'
-                    f'</small><br><br><tt><a href="https://www.{link_website}" style="color:gray;">{link_website}</a></tt>'
+                    # f'</small><br><br><tt><a href="https://www.{link_website}" style="color:gray;">{link_website}</a></tt>'
                 ),
             ],
             layout="vertical",
@@ -1289,6 +1343,8 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                     layout="horizontal",
                 )
+
+            container.margins = (8,)*4
             return container
         return None
 
