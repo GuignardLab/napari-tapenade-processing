@@ -466,19 +466,6 @@ class TapenadeProcessingWidget(QWidget):
 
                 compute_mask_threshold_factor_container.margins = (0,)*4
 
-                # self._convex_hull_checkbox = create_widget(
-                #     widget_type="CheckBox",
-                #     label="Compute convex hull",
-                #     options={"value": False},
-                # )
-
-                # convex_hull_checkbox_tooltip = (
-                #     "Returns the convex hull of the mask. Really slow."
-                # )
-                # convex_hull_container = self._add_tooltip_button_to_container(
-                #     self._convex_hull_checkbox, convex_hull_checkbox_tooltip
-                # )
-
                 self._compute_mask_post_processing_combo = create_widget(
                     label="Post-processing",
                     options={
@@ -523,8 +510,9 @@ class TapenadeProcessingWidget(QWidget):
                     options={"value": False},
                 )
                 registered_image_tooltip = (
-                    "If checked, the image is assumed to have large areas of 0s outside of the tapenade.\n"
-                    "These values will be masked"
+                    "If checked, the image is assumed to have large areas of 0s on the outer parts,\n"
+                    "as is often the case for images that are padded with 0 when spatially registered.\n"
+                    "These values will be masked."
                 )
 
                 registered_image_container = (
@@ -536,6 +524,25 @@ class TapenadeProcessingWidget(QWidget):
 
                 registered_image_container.margins = (0,)*4
 
+                self._erode_mask_spinbox = create_widget(
+                    widget_type="IntSpinBox",
+                    label="Num. erosions",
+                    options={"min": 0, "max": 100, "value": 0},
+                )
+
+                erode_mask_tooltip = (
+                    "Number of erosions to apply to the mask after thresholding.\n"
+                    "Useful to remove small objects or to thin out the mask border."
+                )
+
+                erode_mask_container = (
+                    self._add_tooltip_button_to_container(
+                        self._erode_mask_spinbox, erode_mask_tooltip
+                    )
+                )
+
+                erode_mask_container.margins = (0,)*4
+
                 self._compute_mask_container = Container(
                     widgets=[
                         compute_mask_method_container,
@@ -544,6 +551,7 @@ class TapenadeProcessingWidget(QWidget):
                         compute_mask_post_processing_container,
                         keep_largest_cc_container,
                         registered_image_container,
+                        erode_mask_container,
                     ],
                     labels=False,
                 )
