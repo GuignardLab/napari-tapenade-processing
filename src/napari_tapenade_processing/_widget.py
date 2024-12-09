@@ -525,7 +525,7 @@ class TapenadeProcessingWidget(QWidget):
                 registered_image_container.margins = (0,)*4
 
                 self._erode_mask_spinbox = create_widget(
-                    widget_type="IntSpinBox",
+                    widget_type="SpinBox",
                     label="Num. erosions",
                     options={"min": 0, "max": 100, "value": 0},
                 )
@@ -1835,6 +1835,7 @@ class TapenadeProcessingWidget(QWidget):
             "post_processing_method": self._compute_mask_post_processing_combo.value,
             "keep_largest_cc": self._compute_mask_keep_largest_cc_checkbox.value,
             "registered_image": self._registered_image_checkbox.value,
+            "n_erosion_steps": self._erode_mask_spinbox.value,
             "n_jobs": self._n_jobs_slider.value,
         }
 
