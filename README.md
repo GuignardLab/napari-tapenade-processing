@@ -83,6 +83,21 @@ The advanced parameters tab is composed of the following elements:
 2. A checkbox `Results are cropped using mask`: whether the output of functions are systematically cropped using the mask layer (if it is provided). This can be useful to save memory when you don't need to process the whole image.
 3. A slider `# parallel jobs`: the number of parallel jobs to use when running a function on a 3D+time input (each frame is processed in parallel). This can be useful to speed up the processing.
 
+## Demo dataset
+
+A demo dataset is available [here](https://amubox.univ-amu.fr/s/MRdFy3KqQNjpyHa).
+
+### Content
+
+This test dataset is composed of a folder `folder_raw_data` which contains 5 separate frames (3D images), and a macro Json file `recorder_parameters.json`.  
+
+### How to use
+
+ - Download the folder `folder_raw_data`. 
+ - Load one of the image from the folder (either drag and drop, or "File>Open file(s)") and start creating your own pipeline.
+ - To try batch processing through the macro feature, click on the "Macro recording tab", choose a path to save the macro Json file, click on "Start recording macro", and perform a sequence of function runs of your choice. When you are finished, click "Stop recording and save macro". Then specify the path to your macro file below (alternatively, a valid Json file is also made available), the folder where the rest of the frames are located, and the folder where the results of the pipeline will be saved. Click on run macro. You should see as many folders as there are steps in your pipeline, containing the results on each frame.
+
+
 ## Contributing
 
 Contributions are very welcome. Tests can be run with [tox], please ensure
