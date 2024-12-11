@@ -65,13 +65,40 @@ The pre-processing tab is composed of the following elements:
 1. A combo box to select the pre-processing function to apply from a list.
 2. A set of comboxes that allow you to select the layers to apply the function on. If a function does not require a specific layer, the combo box will be greyed out. `Image` layers correspond to integer or float data, `Labels` layers correspond to integer data and represent segmented object instances, `Mask` layers correspond to boolean data and usually represent the sample's large scale mask (inside/outside). All layers must have data of the same shape (same number of dimensions and same dimensions). Layers can be 3D or 3D+time, respectively with the ZYX or TZYX order.
 (2') If a layer does not appear in a combo box, but is present in the Layer List, you can click on the `Refresh` button to update the list of layers.
-3. A set of parameters that you can tune to adjust the function's behaviour. The parameters are specific to each function. In case of doubt, you can hover over the parameter name/widget to get a tooltip with a description.
+3. A set of parameters that you can tune to adjust the function's behaviour. The parameters are specific to each function. In case of doubt, you can click on the little `[?]` button next to the widget to get a tooltip with a description.
 4. A `Run function` button to apply the function with the current parameters to the previously selected layers.
 
 
 ### Tab 2: The macro recording feature
 
-In progress...
+#### A. Recording a macro
+
+<img src="imgs/proc_macro_1.png" width=300>
+
+To record a macro, click on the `Macro recording` tab and follow these steps:
+
+1. Click on `Choose directory` to select a folder where the macro file will be saved.
+2. Click on `Start recording macro` to start recording the functions you will apply. At this point, you can start applying sequences of functions to images/segementations/masks that you have already loaded in Napari or that you load in the middle of the recording. 
+
+<img src="imgs/proc_macro_2.png" width=300>
+
+3. When you are finished, click `Stop recording and save macro`. It will be saved in the JSON (`.json`) format, and the name will follow the pattern `recorder_parameters_YYYY-MM-DD_HH-MM-SS.json`.
+
+#### B. Running a macro
+
+Macros allow you to run a sequence of functions in batch on folders of input TIFF images (either different frames of the same 3D+t image, or several 3D images). The input images should be in the same folder, and the output will be saved in a folder of your choice. The output of each function will be saved in a separate folder, and the name of the folder will be linked to the name of the function.
+
+<img src="imgs/proc_macro_3.png" width=300>
+
+To run a macro, click on the `Macro recording` tab and follow these steps:
+
+1. Click on `Select file` to choose the macro file you want to run.
+2. After specifying the path to the macro file, several path entries with names like `Path to folder ([...]) N` (e.g `Path to folder (['Image'] 1`) will appear. Click on the `Choose directory` button to select the folder where the input images (TIFF files) are located.
+3. Click on `Choose directory` under `Path to save outputs folders of tifs` to select the folder where the results of the pipeline will be saved. Each function call will generate a folder whose name will be linked to the name of the function.
+4. You can click the `Compress when saving` checkbox to save the output TIFF images in a compressed format using LZW compression. 
+5. Choose the number of workers to use for parallel processing. The default value is 1, which means that the functions will be run sequentially on the images. If you have a multi-core CPU, you can increase this value to speed up the processing. Be careful that setting this value too high can lead to memory issues.
+6. Click on `Run macro` to start the processing. You will see as many folders as there are steps in your pipeline, containing the results on each frame.
+
 
 ### Tab 3: Advanced parameters
 
@@ -92,8 +119,8 @@ This test dataset is composed of a folder `folder_raw_data` which contains 5 sep
 ### How to use
 
  - Download the folder `folder_raw_data`. 
- - Load one of the image from the folder (either drag and drop, or "File>Open file(s)") and start creating your own pipeline.
- - To try batch processing through the macro feature, click on the "Macro recording tab", choose a path to save the macro Json file, click on "Start recording macro", and perform a sequence of function runs of your choice. When you are finished, click "Stop recording and save macro". Then specify the path to your macro file below (alternatively, a valid Json file is also made available), the folder where the rest of the frames are located, and the folder where the results of the pipeline will be saved. Click on run macro. You should see as many folders as there are steps in your pipeline, containing the results on each frame.
+ - Load one of the image from the folder (either drag and drop, or `File>Open file(s)`) and start creating your own pipeline.
+ - To try batch processing through the macro feature, click on the `Macro recording tab`, choose a path to save the macro Json file, click on `Start recording macro`, and perform a sequence of function runs of your choice. When you are finished, click `Stop recording and save macro`. Then specify the path to your macro file below (alternatively, a valid Json file is also made available), the folder where the rest of the frames are located, and the folder where the results of the pipeline will be saved. Click on run macro. You should see as many folders as there are steps in your pipeline, containing the results on each frame.
 
 
 ## Contributing
