@@ -95,7 +95,7 @@ To run a macro, click on the `Macro recording` tab and follow these steps:
 1. Click on `Select file` to choose the macro file you want to run.
 2. After specifying the path to the macro file, several path entries with names like `Path to folder ([...]) N` (e.g `Path to folder (['Image'] 1`) will appear. Click on the `Choose directory` button to select the folder where the input images (TIFF files) are located.
 3. Click on `Choose directory` under `Path to save outputs folders of tifs` to select the folder where the results of the pipeline will be saved. Each function call will generate a folder whose name will be linked to the name of the function.
-4. You can click the `Compress when saving` checkbox to save the output TIFF images in a compressed format using LZW compression. 
+4. You can click the `Compress when saving` checkbox to save the output TIFF images in a compressed format using ZLIB compression. 
 5. Choose the number of workers to use for parallel processing. The default value is 1, which means that the functions will be run sequentially on the images. If you have a multi-core CPU, you can increase this value to speed up the processing. Be careful that setting this value too high can lead to memory issues.
 6. Click on `Run macro` to start the processing. You will see as many folders as there are steps in your pipeline, containing the results on each frame.
 
