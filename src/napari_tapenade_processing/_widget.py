@@ -371,10 +371,6 @@ class TapenadeProcessingWidget(QWidget):
 
                 YX_container.margins = (0,)*4
 
-                print(T_container.margins)
-                print('---')
-                # print(T_container.native.margins)
-
                 self._organize_array_dimensions = Container(
                     widgets=[
                         refresh_dims_container,
