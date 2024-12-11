@@ -80,8 +80,6 @@ In progress...
 The advanced parameters tab is composed of the following elements:
 
 1. A checkbox `New layers overwrite previous ones`: whether the output of the pre-processing functions should be saved as new layers or overwrite the previous ones that were used as input. This can be useful to save memory when you don't need to compare the input and output of a function.
-2. A checkbox `Results are cropped using mask`: whether the output of functions are systematically cropped using the mask layer (if it is provided). This can be useful to save memory when you don't need to process the whole image.
-3. A slider `# parallel jobs`: the number of parallel jobs to use when running a function on a 3D+time input (each frame is processed in parallel). This can be useful to speed up the processing.
 
 ## Demo dataset
 
