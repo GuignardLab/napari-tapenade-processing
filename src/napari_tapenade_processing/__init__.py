@@ -1,4 +1,4 @@
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 from ._widget import TapenadeProcessingWidget
 
 __all__ = (
