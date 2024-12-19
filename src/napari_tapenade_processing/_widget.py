@@ -2021,7 +2021,7 @@ class TapenadeProcessingWidget(QWidget):
         if sigma == 0:
             sigma = None
 
-        image_wavelength = int(self._int_norm_image_wavelength_slider.value.split(" ")[0])
+        image_wavelength = int(self._int_norm_wavelength_combo.value.split(" ")[0])
 
         width = self._int_norm_width_slider.value
 
