@@ -2711,7 +2711,7 @@ class TapenadeProcessingWidget(QWidget):
                     parallel_function(i)
             # * functions that need special wrapping (e.g cropping)
             elif function_name == "reorganize_array_dimensions":
-                if func_params["bool_seperate_channels"]:
+                if not func_params["bool_seperate_channels"]:
                     output_id = next(
                         iter(output_params_to_layer_ids_dict.values())
                     )
@@ -2722,7 +2722,6 @@ class TapenadeProcessingWidget(QWidget):
                         layer_id_to_folder_path_dict[output_id]
                         for output_id in output_ids
                     ]
-                output_folder = layer_id_to_folder_path_dict[output_id]
                 reorganize_array_dimensions_from_files(
                     input_params_to_list_of_tifpaths_dict["array"],
                     output_folders,
