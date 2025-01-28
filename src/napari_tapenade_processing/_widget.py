@@ -7,6 +7,7 @@ from collections import OrderedDict
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
+from importlib import resources
 
 import napari.utils
 import numpy as np
@@ -1218,19 +1219,20 @@ class TapenadeProcessingWidget(QWidget):
         self._processing_graph = None
         ###
 
-        logo_path = str(Path(__file__).parent / "logo" / "tapenade3.png")
+        # logo_path = str(Path(__file__).parent / "logo" / "tapenade3.png")
 
         # label = create_widget(
         #     widget_type="Label", label=f'<img src="{logo_path}"></img>'
         # )
-        pixmap = QPixmap(logo_path)
-        pixmap = pixmap.scaled(80, 60, transformMode=Qt.SmoothTransformation)
-        label = QLabel()
-        label.setPixmap(pixmap)
+        with resources.path("napari_tapenade_processing.logo", "tapenade3.png") as logo_path:
+            pixmap = QPixmap(logo_path)
+            pixmap = pixmap.scaled(80, 60, transformMode=Qt.SmoothTransformation)
+            label = QLabel()
+            label.setPixmap(pixmap)
 
-        label._explicitly_hidden = False
-        label.native = label
-        label.name = ""
+            label._explicitly_hidden = False
+            label.native = label
+            label.name = ""
 
         link_website = "morphotiss.org/"
         link_DOI = "https://doi.org/10.1101/2024.08.13.607832"
