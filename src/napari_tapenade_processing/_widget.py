@@ -1225,7 +1225,7 @@ class TapenadeProcessingWidget(QWidget):
         #     widget_type="Label", label=f'<img src="{logo_path}"></img>'
         # )
         with resources.path("napari_tapenade_processing.logo", "tapenade3.png") as logo_path:
-            pixmap = QPixmap(logo_path)
+            pixmap = QPixmap(str(logo_path))
             pixmap = pixmap.scaled(80, 60, transformMode=Qt.SmoothTransformation)
             label = QLabel()
             label.setPixmap(pixmap)
