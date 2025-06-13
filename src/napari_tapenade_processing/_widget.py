@@ -426,7 +426,7 @@ class TapenadeProcessingWidget(QWidget):
                 self._compute_mask_sigma_blur_slider = create_widget(
                     widget_type="IntSlider",
                     label="Sigma blur",
-                    options={"min": 1, "max": 10, "value": 3},
+                    options={"min": 0, "max": 10, "value": 3},
                 )
 
                 compute_mask_sigma_blur_tooltip = (
