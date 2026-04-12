@@ -306,7 +306,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                separate_channels_container.margins = (0,)*4
+                separate_channels_container.margins = (0,) * 4
 
                 self._reorganize_dims_keep_original_image_checkbox = (
                     create_widget(
@@ -337,7 +337,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                keep_original_image_container.margins = (0,)*4
+                keep_original_image_container.margins = (0,) * 4
 
                 T_container = Container(
                     widgets=[
@@ -348,7 +348,7 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-                T_container.margins = (0,)*4
+                T_container.margins = (0,) * 4
 
                 CZ_container = Container(
                     widgets=[
@@ -359,7 +359,7 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-                CZ_container.margins = (0,)*4
+                CZ_container.margins = (0,) * 4
 
                 YX_container = Container(
                     widgets=[
@@ -370,7 +370,7 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-                YX_container.margins = (0,)*4
+                YX_container.margins = (0,) * 4
 
                 self._organize_array_dimensions = Container(
                     widgets=[
@@ -441,7 +441,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                compute_mask_sigma_blur_container.margins = (0,)*4
+                compute_mask_sigma_blur_container.margins = (0,) * 4
 
                 self._compute_mask_threshold_factor_slider = create_widget(
                     widget_type="FloatSlider",
@@ -461,7 +461,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                compute_mask_threshold_factor_container.margins = (0,)*4
+                compute_mask_threshold_factor_container.margins = (0,) * 4
 
                 self._compute_mask_post_processing_combo = create_widget(
                     label="Post-processing",
@@ -499,7 +499,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                keep_largest_cc_container.margins = (0,)*4
+                keep_largest_cc_container.margins = (0,) * 4
 
                 self._registered_image_checkbox = create_widget(
                     widget_type="CheckBox",
@@ -519,7 +519,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                registered_image_container.margins = (0,)*4
+                registered_image_container.margins = (0,) * 4
 
                 self._erode_mask_spinbox = create_widget(
                     widget_type="SpinBox",
@@ -532,13 +532,11 @@ class TapenadeProcessingWidget(QWidget):
                     "Useful to remove small objects or to thin out the mask border."
                 )
 
-                erode_mask_container = (
-                    self._add_tooltip_button_to_container(
-                        self._erode_mask_spinbox, erode_mask_tooltip
-                    )
+                erode_mask_container = self._add_tooltip_button_to_container(
+                    self._erode_mask_spinbox, erode_mask_tooltip
                 )
 
-                erode_mask_container.margins = (0,)*4
+                erode_mask_container.margins = (0,) * 4
 
                 self._compute_mask_container = Container(
                     widgets=[
@@ -651,13 +649,12 @@ class TapenadeProcessingWidget(QWidget):
                     },
                 )
 
-                int_norm_wavelength_tooltip = (
-                    "Wavelength of the image. Used to adjust the intensities in the reference layer."
-                )
+                int_norm_wavelength_tooltip = "Wavelength of the image. Used to adjust the intensities in the reference layer."
 
                 int_norm_wavelength_container = (
                     self._add_tooltip_button_to_container(
-                        self._int_norm_wavelength_combo, int_norm_wavelength_tooltip
+                        self._int_norm_wavelength_combo,
+                        int_norm_wavelength_tooltip,
                     )
                 )
 
@@ -1224,9 +1221,13 @@ class TapenadeProcessingWidget(QWidget):
         # label = create_widget(
         #     widget_type="Label", label=f'<img src="{logo_path}"></img>'
         # )
-        with resources.path("napari_tapenade_processing.logo", "tapenade3.png") as logo_path:
+        with resources.path(
+            "napari_tapenade_processing.logo", "tapenade3.png"
+        ) as logo_path:
             pixmap = QPixmap(str(logo_path))
-            pixmap = pixmap.scaled(80, 60, transformMode=Qt.SmoothTransformation)
+            pixmap = pixmap.scaled(
+                80, 60, transformMode=Qt.SmoothTransformation
+            )
             label = QLabel()
             label.setPixmap(pixmap)
 
@@ -1350,7 +1351,7 @@ class TapenadeProcessingWidget(QWidget):
                     layout="horizontal",
                 )
 
-            container.margins = (8,)*4
+            container.margins = (8,) * 4
             return container
         return None
 
@@ -1748,7 +1749,9 @@ class TapenadeProcessingWidget(QWidget):
             channel_names = [
                 f"{name}_ch{index}" for index in range(len(reorganized_array))
             ]
-            for channel_name, channel_array in zip(channel_names, reorganized_array):
+            for channel_name, channel_array in zip(
+                channel_names, reorganized_array
+            ):
 
                 if layer_type == "Image":
                     self._viewer.add_image(
@@ -2023,7 +2026,9 @@ class TapenadeProcessingWidget(QWidget):
         if sigma == 0:
             sigma = None
 
-        image_wavelength = int(self._int_norm_wavelength_combo.value.split(" ")[0])
+        image_wavelength = int(
+            self._int_norm_wavelength_combo.value.split(" ")[0]
+        )
 
         width = self._int_norm_width_slider.value
 
