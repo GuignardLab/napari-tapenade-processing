@@ -392,17 +392,17 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-            # Spectral filtering
-            if True:
-                self._spectral_filtering_container = Container(
-                    widgets=[
-                        EmptyWidget(),
-                        Label(value="Not implemented yet."),
-                        Label(value="Under construction."),
-                        EmptyWidget(),
-                    ],
-                    labels=False,
-                )
+            # # Spectral filtering
+            # if True:
+            #     self._spectral_filtering_container = Container(
+            #         widgets=[
+            #             EmptyWidget(),
+            #             Label(value="Not implemented yet."),
+            #             Label(value="Under construction."),
+            #             EmptyWidget(),
+            #         ],
+            #         labels=False,
+            #     )
 
             # Computing mask
             if True:
@@ -955,14 +955,14 @@ class TapenadeProcessingWidget(QWidget):
                 "reorganize_array_dimensions": reorganize_array_dimensions,
                 "change_array_pixelsize": change_array_pixelsize,
                 "compute_mask": compute_mask,
+                "crop_array_using_mask": crop_array_using_mask,
                 "global_contrast_enhancement": global_contrast_enhancement,
                 "local_contrast_enhancement": local_contrast_enhancement,
-                "align_array_major_axis": align_array_major_axis,
-                "remove_labels_outside_of_mask": remove_labels_outside_of_mask,
-                "crop_array_using_mask": crop_array_using_mask,
-                "normalize_intensity": normalize_intensity,
                 "segment_stardist": segment_stardist,
                 "segment_cellpose_sam": segment_cellpose_sam,
+                "remove_labels_outside_of_mask": remove_labels_outside_of_mask,
+                "normalize_intensity": normalize_intensity,
+                "align_array_major_axis": align_array_major_axis,
                 "masked_gaussian_smoothing": masked_gaussian_smoothing,
             }
 
@@ -973,13 +973,16 @@ class TapenadeProcessingWidget(QWidget):
                         self._organize_array_dimensions,
                     ),
                     ("Change layer voxelsize", self._rescale_container),
-                    ("Spectral filtering", self._spectral_filtering_container),
+                    # ("Spectral filtering", self._spectral_filtering_container),
                     ("Compute mask from image", self._compute_mask_container),
+                    (
+                        "Crop layers using mask",
+                        self._crop_array_using_mask_container,
+                    ),
                     (
                         "Image contrast enhancement",
                         self._contrast_enhancement_container,
                     ),
-                    ("Intensity normalization", self._int_norm_container),
                     (
                         "Align layer from mask major axis",
                         self._align_major_axis_container,
@@ -996,10 +999,7 @@ class TapenadeProcessingWidget(QWidget):
                         "Remove labels outside of mask",
                         self._remove_labels_outside_of_mask_container,
                     ),
-                    (
-                        "Crop layers using mask",
-                        self._crop_array_using_mask_container,
-                    ),
+                    ("Intensity normalization", self._int_norm_container),
                     (
                         "Masked gaussian smoothing",
                         self._masked_gaussian_smoothing_container,
@@ -1014,13 +1014,16 @@ class TapenadeProcessingWidget(QWidget):
                         self._run_organize_array_dimensions,
                     ),
                     ("Change layer voxelsize", self._run_rescale),
-                    ("Spectral filtering", None),
+                    # ("Spectral filtering", None),
                     ("Compute mask from image", self._run_compute_mask),
+                    (
+                        "Crop layers using mask",
+                        self._run_crop_array_using_mask,
+                    ),
                     (
                         "Image contrast enhancement",
                         self._run_contrast_enhancement,
                     ),
-                    ("Intensity normalization", self._run_normalize_intensity),
                     (
                         "Align layer from mask major axis",
                         self._run_align_major_axis,
@@ -1037,13 +1040,9 @@ class TapenadeProcessingWidget(QWidget):
                         "Remove labels outside of mask",
                         self._run_remove_labels_outside_of_mask,
                     ),
-                    (
-                        "Crop layers using mask",
-                        self._run_crop_array_using_mask,
-                    ),
+                    ("Intensity normalization", self._run_normalize_intensity),
                     (
                         "Masked gaussian smoothing",
-                        # None
                         self._run_masked_gaussian_smoothing,
                     ),
                 ]
@@ -1052,7 +1051,7 @@ class TapenadeProcessingWidget(QWidget):
             self._funcs_combobox_text_to_visible_layers = {
                 "Re-organize array dimensions": ["array"],
                 "Change layer voxelsize": ["array"],
-                "Spectral filtering": [],
+                # "Spectral filtering": [],
                 "Compute mask from image": ["image"],
                 "Image contrast enhancement": ["image", "mask"],
                 "Intensity normalization": [
@@ -1087,7 +1086,7 @@ class TapenadeProcessingWidget(QWidget):
                 "crop_array_using_mask": "cropped",
                 "normalize_intensity": "normalized",
                 "masked_gaussian_smoothing": "smoothed",
-                "spectral_filtering": "filtered",
+                # "spectral_filtering": "filtered",
                 "segment_stardist": "segmented",
                 "segment_cellpose_sam": "segmented",
             }
