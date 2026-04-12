@@ -46,6 +46,8 @@ from tapenade.preprocessing import (
     normalize_intensity,
     reorganize_array_dimensions,
     reorganize_array_dimensions_from_files,
+    segment_cellpose_sam,
+    segment_cellpose_sam_from_files,
     segment_stardist,
     segment_stardist_from_files,
 )
@@ -306,7 +308,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                separate_channels_container.margins = (0,)*4
+                separate_channels_container.margins = (0,) * 4
 
                 self._reorganize_dims_keep_original_image_checkbox = (
                     create_widget(
@@ -337,7 +339,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                keep_original_image_container.margins = (0,)*4
+                keep_original_image_container.margins = (0,) * 4
 
                 T_container = Container(
                     widgets=[
@@ -348,7 +350,7 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-                T_container.margins = (0,)*4
+                T_container.margins = (0,) * 4
 
                 CZ_container = Container(
                     widgets=[
@@ -359,7 +361,7 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-                CZ_container.margins = (0,)*4
+                CZ_container.margins = (0,) * 4
 
                 YX_container = Container(
                     widgets=[
@@ -370,7 +372,7 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-                YX_container.margins = (0,)*4
+                YX_container.margins = (0,) * 4
 
                 self._organize_array_dimensions = Container(
                     widgets=[
@@ -396,14 +398,15 @@ class TapenadeProcessingWidget(QWidget):
                 self._compute_mask_method_combo = create_widget(
                     label="Method",
                     options={
-                        "choices": ["otsu", "snp otsu"],
+                        "choices": ["otsu", "snp otsu", "threshold"],
                         "value": "snp otsu",
                     },
                 )
 
                 compute_mask_method_tooltip = (
                     "otsu: thresholding with Otsu's method on blurred image.\n"
-                    "snp otsu: more robust but slower version of thresholding with Otsu's method."
+                    "snp otsu: more robust but slower version of thresholding with Otsu's method.\n"
+                    "threshold: fixed threshold after optional blur."
                 )
                 compute_mask_method_container = (
                     self._add_tooltip_button_to_container(
@@ -430,7 +433,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                compute_mask_sigma_blur_container.margins = (0,)*4
+                compute_mask_sigma_blur_container.margins = (0,) * 4
 
                 self._compute_mask_threshold_factor_slider = create_widget(
                     widget_type="FloatSlider",
@@ -443,14 +446,38 @@ class TapenadeProcessingWidget(QWidget):
                     "If the mask is too excusive (fewer pixels should be False) (set factor > 1)."
                 )
 
-                compute_mask_threshold_factor_container = (
+                self._compute_mask_threshold_factor_container = (
                     self._add_tooltip_button_to_container(
                         self._compute_mask_threshold_factor_slider,
                         compute_mask_threshold_factor_tooltip,
                     )
                 )
 
-                compute_mask_threshold_factor_container.margins = (0,)*4
+                self._compute_mask_threshold_factor_container.margins = (0,) * 4
+
+                self._compute_mask_threshold_value_slider = create_widget(
+                    widget_type="FloatSpinBox",
+                    label="Threshold value",
+                    options={
+                        "min": 0,
+                        "max": 100000,
+                        "value": 0,
+                        "step": 0.02,
+                    },
+                )
+
+                compute_mask_threshold_value_tooltip = (
+                    "Fixed threshold applied to the (optionally blurred) image."
+                )
+
+                self._compute_mask_threshold_value_container = (
+                    self._add_tooltip_button_to_container(
+                        self._compute_mask_threshold_value_slider,
+                        compute_mask_threshold_value_tooltip,
+                    )
+                )
+
+                self._compute_mask_threshold_value_container.margins = (0,) * 4
 
                 self._compute_mask_post_processing_combo = create_widget(
                     label="Post-processing",
@@ -488,7 +515,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                keep_largest_cc_container.margins = (0,)*4
+                keep_largest_cc_container.margins = (0,) * 4
 
                 self._registered_image_checkbox = create_widget(
                     widget_type="CheckBox",
@@ -508,7 +535,7 @@ class TapenadeProcessingWidget(QWidget):
                     )
                 )
 
-                registered_image_container.margins = (0,)*4
+                registered_image_container.margins = (0,) * 4
 
                 self._erode_mask_spinbox = create_widget(
                     widget_type="SpinBox",
@@ -521,25 +548,31 @@ class TapenadeProcessingWidget(QWidget):
                     "Useful to remove small objects or to thin out the mask border."
                 )
 
-                erode_mask_container = (
-                    self._add_tooltip_button_to_container(
-                        self._erode_mask_spinbox, erode_mask_tooltip
-                    )
+                erode_mask_container = self._add_tooltip_button_to_container(
+                    self._erode_mask_spinbox, erode_mask_tooltip
                 )
 
-                erode_mask_container.margins = (0,)*4
+                erode_mask_container.margins = (0,) * 4
 
                 self._compute_mask_container = Container(
                     widgets=[
                         compute_mask_method_container,
                         compute_mask_sigma_blur_container,
-                        compute_mask_threshold_factor_container,
+                        self._compute_mask_threshold_factor_container,
+                        self._compute_mask_threshold_value_container,
                         compute_mask_post_processing_container,
                         keep_largest_cc_container,
                         registered_image_container,
                         erode_mask_container,
                     ],
                     labels=False,
+                )
+
+                self._compute_mask_method_combo.changed.connect(
+                    self._update_compute_mask_method
+                )
+                self._update_compute_mask_method(
+                    self._compute_mask_method_combo.value
                 )
 
             # Image contrast enhancement
@@ -640,13 +673,12 @@ class TapenadeProcessingWidget(QWidget):
                     },
                 )
 
-                int_norm_wavelength_tooltip = (
-                    "Wavelength of the image. Used to adjust the intensities in the reference layer."
-                )
+                int_norm_wavelength_tooltip = "Wavelength of the image. Used to adjust the intensities in the reference layer."
 
                 int_norm_wavelength_container = (
                     self._add_tooltip_button_to_container(
-                        self._int_norm_wavelength_combo, int_norm_wavelength_tooltip
+                        self._int_norm_wavelength_combo,
+                        int_norm_wavelength_tooltip,
                     )
                 )
 
@@ -758,6 +790,29 @@ class TapenadeProcessingWidget(QWidget):
                         self._prob_threshold_container,
                         self._nms_threshold_container,
                     ],
+                    labels=False,
+                )
+
+            # Segment with CellPose-SAM
+            if True:
+                self._cellpose_sam_diameter_slider = create_widget(
+                    widget_type="FloatSlider",
+                    label="Diameter (px)",
+                    options={"min": 0, "max": 200, "value": 0},
+                )
+                cellpose_sam_diameter_tooltip = (
+                    "Approximate object diameter in pixels.\n"
+                    "Set to 0 for auto estimation."
+                )
+                cellpose_sam_diameter_container = (
+                    self._add_tooltip_button_to_container(
+                        self._cellpose_sam_diameter_slider,
+                        cellpose_sam_diameter_tooltip,
+                    )
+                )
+
+                self._segment_cellpose_sam_container = Container(
+                    widgets=[cellpose_sam_diameter_container],
                     labels=False,
                 )
 
@@ -896,6 +951,7 @@ class TapenadeProcessingWidget(QWidget):
                 "crop_array_using_mask": crop_array_using_mask,
                 "normalize_intensity": normalize_intensity,
                 "segment_stardist": segment_stardist,
+                "segment_cellpose_sam": segment_cellpose_sam,
                 "masked_gaussian_smoothing": masked_gaussian_smoothing,
             }
 
@@ -920,6 +976,10 @@ class TapenadeProcessingWidget(QWidget):
                     (
                         "Segment with StarDist",
                         self._segment_stardist_container,
+                    ),
+                    (
+                        "Segment with Cellpose-SAM",
+                        self._segment_cellpose_sam_container,
                     ),
                     (
                         "Remove labels outside of mask",
@@ -959,6 +1019,10 @@ class TapenadeProcessingWidget(QWidget):
                         self._run_segment_stardist,
                     ),
                     (
+                        "Segment with Cellpose-SAM",
+                        self._run_segment_cellpose_sam,
+                    ),
+                    (
                         "Remove labels outside of mask",
                         self._run_remove_labels_outside_of_mask,
                     ),
@@ -986,6 +1050,7 @@ class TapenadeProcessingWidget(QWidget):
                     "labels",
                 ],
                 "Segment with StarDist": ["image"],
+                "Segment with Cellpose-SAM": ["image"],
                 "Align layer from mask major axis": [
                     "array",
                     "mask",
@@ -1011,6 +1076,7 @@ class TapenadeProcessingWidget(QWidget):
                 "normalize_intensity": "normalized",
                 "masked_gaussian_smoothing": "smoothed",
                 "segment_stardist": "segmented",
+                "segment_cellpose_sam": "segmented",
             }
 
         self._run_button = create_widget(
@@ -1211,9 +1277,13 @@ class TapenadeProcessingWidget(QWidget):
         # label = create_widget(
         #     widget_type="Label", label=f'<img src="{logo_path}"></img>'
         # )
-        with resources.path("napari_tapenade_processing.logo", "tapenade3.png") as logo_path:
+        with resources.path(
+            "napari_tapenade_processing.logo", "tapenade3.png"
+        ) as logo_path:
             pixmap = QPixmap(str(logo_path))
-            pixmap = pixmap.scaled(80, 60, transformMode=Qt.SmoothTransformation)
+            pixmap = pixmap.scaled(
+                80, 60, transformMode=Qt.SmoothTransformation
+            )
             label = QLabel()
             label.setPixmap(pixmap)
 
@@ -1313,6 +1383,20 @@ class TapenadeProcessingWidget(QWidget):
         self._prob_threshold_container.enabled = not event
         self._nms_threshold_container.enabled = not event
 
+    def _update_compute_mask_method(self, event):
+        method = (
+            event
+            if isinstance(event, str)
+            else self._compute_mask_method_combo.value
+        )
+        is_simple_threshold = method == "threshold"
+        self._compute_mask_threshold_factor_container.visible = (
+            not is_simple_threshold
+        )
+        self._compute_mask_threshold_value_container.visible = (
+            is_simple_threshold
+        )
+
     def _add_tooltip_button_to_container(self, container, tooltip_text):
         button = HoverTooltipButton(tooltip_text)
         button.native = button
@@ -1337,7 +1421,7 @@ class TapenadeProcessingWidget(QWidget):
                     layout="horizontal",
                 )
 
-            container.margins = (8,)*4
+            container.margins = (8,) * 4
             return container
         return None
 
@@ -1735,7 +1819,9 @@ class TapenadeProcessingWidget(QWidget):
             channel_names = [
                 f"{name}_ch{index}" for index in range(len(reorganized_array))
             ]
-            for channel_name, channel_array in zip(channel_names, reorganized_array):
+            for channel_name, channel_array in zip(
+                channel_names, reorganized_array
+            ):
 
                 if layer_type == "Image":
                     self._viewer.add_image(
@@ -1817,6 +1903,7 @@ class TapenadeProcessingWidget(QWidget):
             "method": self._compute_mask_method_combo.value,
             "sigma_blur": self._compute_mask_sigma_blur_slider.value,
             "threshold_factor": self._compute_mask_threshold_factor_slider.value,
+            "threshold_value": self._compute_mask_threshold_value_slider.value,
             "post_processing_method": self._compute_mask_post_processing_combo.value,
             "keep_largest_cc": self._compute_mask_keep_largest_cc_checkbox.value,
             "registered_image": self._registered_image_checkbox.value,
@@ -2010,7 +2097,9 @@ class TapenadeProcessingWidget(QWidget):
         if sigma == 0:
             sigma = None
 
-        image_wavelength = int(self._int_norm_wavelength_combo.value.split(" ")[0])
+        image_wavelength = int(
+            self._int_norm_wavelength_combo.value.split(" ")[0]
+        )
 
         width = self._int_norm_width_slider.value
 
@@ -2130,6 +2219,51 @@ class TapenadeProcessingWidget(QWidget):
             )
             self._recorder.record(
                 function_name="segment_stardist",
+                func_params=func_params,
+                main_input_param_name="image",
+                input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
+                output_params_to_layer_names_and_types_dict=output_params_to_layer_names_and_types_dict,
+            )
+
+    def _run_segment_cellpose_sam(self):
+
+        image_layer, _ = self._assert_basic_layer_properties(
+            self._image_layer_combo.value, ["Image"]
+        )
+        if image_layer is None:
+            return
+
+        diameter_value = self._cellpose_sam_diameter_slider.value
+        diameter = None if diameter_value == 0 else diameter_value
+
+        func_params = {
+            "diameter": diameter,
+            "n_jobs": self._n_jobs_slider.value,
+        }
+
+        start_time = time.time()
+        labels = segment_cellpose_sam(image_layer.data, **func_params)
+        napari.utils.notifications.show_info(
+            f"CellPose-SAM segmentation took {time.time() - start_time} seconds"
+        )
+
+        old_name = image_layer.name
+        name = f"{old_name}_{self._adjective_dict['segment_cellpose_sam']}"
+        self._viewer.add_labels(labels, name=name)
+
+        self._labels_layer_combo.native.setCurrentIndex(
+            self._labels_layer_combo.native.count() - 1
+        )
+
+        if self._is_recording_parameters:
+            input_params_to_layer_names_and_types_dict = {
+                "image": (old_name, "Image"),
+            }
+            output_params_to_layer_names_and_types_dict = OrderedDict(
+                [("segmented_labels", (name, "Labels"))]
+            )
+            self._recorder.record(
+                function_name="segment_cellpose_sam",
                 func_params=func_params,
                 main_input_param_name="image",
                 input_params_to_layer_names_and_types_dict=input_params_to_layer_names_and_types_dict,
@@ -2750,6 +2884,17 @@ class TapenadeProcessingWidget(QWidget):
                 )
                 output_folder = layer_id_to_folder_path_dict[output_id]
                 segment_stardist_from_files(
+                    input_params_to_list_of_tifpaths_dict["image"],
+                    output_folder,
+                    compress_params,
+                    func_params,
+                )
+            elif function_name == "segment_cellpose_sam":
+                output_id = next(
+                    iter(output_params_to_layer_ids_dict.values())
+                )
+                output_folder = layer_id_to_folder_path_dict[output_id]
+                segment_cellpose_sam_from_files(
                     input_params_to_list_of_tifpaths_dict["image"],
                     output_folder,
                     compress_params,

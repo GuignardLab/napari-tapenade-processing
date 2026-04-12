@@ -3,8 +3,6 @@
 [![License MIT](https://img.shields.io/pypi/l/napari-tapenade-processing.svg?color=green)](https://github.com/jules-vanaret/napari-tapenade-processing/raw/main/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/napari-tapenade-processing.svg?color=green)](https://pypi.org/project/napari-tapenade-processing)
 [![Python Version](https://img.shields.io/pypi/pyversions/napari-tapenade-processing.svg?color=green)](https://python.org)
-[![tests](https://github.com/jules-vanaret/napari-tapenade-processing/workflows/tests/badge.svg)](https://github.com/jules-vanaret/napari-tapenade-processing/actions)
-[![codecov](https://codecov.io/gh/jules-vanaret/napari-tapenade-processing/branch/main/graph/badge.svg)](https://codecov.io/gh/jules-vanaret/napari-tapenade-processing)
 [![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-tapenade-processing)](https://napari-hub.org/plugins/napari-tapenade-processing)
 
 <img src="https://github.com/GuignardLab/tapenade/blob/main/imgs/tapenade3.png" width="100">
