@@ -390,17 +390,6 @@ class TapenadeProcessingWidget(QWidget):
                     labels=False,
                 )
 
-            # Spectral filtering
-            if True:
-                self._spectral_filtering_container = Container(
-                    widgets=[
-                        EmptyWidget(),
-                        Label(value="Not implemented yet."),
-                        Label(value="Under construction."),
-                        EmptyWidget(),
-                    ],
-                    labels=False,
-                )
 
             # Computing mask
             if True:
@@ -916,18 +905,18 @@ class TapenadeProcessingWidget(QWidget):
                         "Re-organize array dimensions",
                         self._organize_array_dimensions,
                     ),
+
                     ("Change layer voxelsize", self._rescale_container),
-                    ("Spectral filtering", self._spectral_filtering_container),
                     ("Compute mask from image", self._compute_mask_container),
+                    (
+                        "Crop layers using mask",
+                        self._crop_array_using_mask_container,
+                    ),
                     (
                         "Image contrast enhancement",
                         self._contrast_enhancement_container,
                     ),
-                    ("Intensity normalization", self._int_norm_container),
-                    (
-                        "Align layer from mask major axis",
-                        self._align_major_axis_container,
-                    ),
+
                     (
                         "Segment with StarDist",
                         self._segment_stardist_container,
@@ -936,9 +925,10 @@ class TapenadeProcessingWidget(QWidget):
                         "Remove labels outside of mask",
                         self._remove_labels_outside_of_mask_container,
                     ),
+                    ("Intensity normalization", self._int_norm_container),
                     (
-                        "Crop layers using mask",
-                        self._crop_array_using_mask_container,
+                        "Align layer from mask major axis",
+                        self._align_major_axis_container,
                     ),
                     (
                         "Masked gaussian smoothing",
@@ -954,7 +944,6 @@ class TapenadeProcessingWidget(QWidget):
                         self._run_organize_array_dimensions,
                     ),
                     ("Change layer voxelsize", self._run_rescale),
-                    ("Spectral filtering", None),
                     ("Compute mask from image", self._run_compute_mask),
                     (
                         "Image contrast enhancement",
@@ -988,7 +977,6 @@ class TapenadeProcessingWidget(QWidget):
             self._funcs_combobox_text_to_visible_layers = {
                 "Re-organize array dimensions": ["array"],
                 "Change layer voxelsize": ["array"],
-                "Spectral filtering": [],
                 "Compute mask from image": ["image"],
                 "Image contrast enhancement": ["image", "mask"],
                 "Intensity normalization": [
@@ -1022,7 +1010,6 @@ class TapenadeProcessingWidget(QWidget):
                 "crop_array_using_mask": "cropped",
                 "normalize_intensity": "normalized",
                 "masked_gaussian_smoothing": "smoothed",
-                "spectral_filtering": "filtered",
                 "segment_stardist": "segmented",
             }
 
