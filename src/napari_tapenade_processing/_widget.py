@@ -2765,7 +2765,7 @@ class TapenadeProcessingWidget(QWidget):
 
         compress_params = {}
         if self._run_macro_compress_checkbox.value:
-            compress_params.update({"compression": ("zlib", 1)})
+            compress_params.update({"compression": "zlib"})
 
         layer_id_to_folder_path_dict = {
             layer_id: widget.value
