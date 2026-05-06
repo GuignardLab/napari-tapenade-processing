@@ -120,6 +120,11 @@ This test dataset is composed of a folder `folder_raw_data` which contains 5 sep
  - Load one of the image from the folder (either drag and drop, or `File>Open file(s)`) and start creating your own pipeline.
  - To try batch processing through the macro feature, click on the `Macro recording tab`, choose a path to save the macro Json file, click on `Start recording macro`, and perform a sequence of function runs of your choice. When you are finished, click `Stop recording and save macro`. Then specify the path to your macro file below (alternatively, a valid Json file is also made available), the folder where the rest of the frames are located, and the folder where the results of the pipeline will be saved. Click on run macro. You should see as many folders as there are steps in your pipeline, containing the results on each frame.
 
+## How to cite
+
+If you use this plugin for your research, please cite us using the following reference:
+
+- Jules Vanaret, Alice Gros, Valentin Dunsing-Eichenauer, Agathe Rostan, Philippe Roudot, Pierre-François Lenne, Léo Guignard, Sham Tlili (2025) <b>A quantitative pipeline for whole-mount deep imaging and analysis of multi-layered organoids across scales</b>. eLife 14:RP107154 ; doi:https://doi.org/10.7554/eLife.107154.2
 
 ## Contributing
 
