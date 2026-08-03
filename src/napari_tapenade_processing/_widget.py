@@ -613,7 +613,7 @@ class TapenadeProcessingWidget(QWidget):
                 self._local_norm_box_size_slider = create_widget(
                     widget_type="IntSlider",
                     label="Box size",
-                    options={"min": 3, "max": 25, "value": 10},
+                    options={"min": 3, "max": 50, "value": 10},
                 )
                 local_norm_box_size_tooltip = (
                     "Size of the box used for the image contrast enhancement\n"
